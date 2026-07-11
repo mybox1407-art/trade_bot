@@ -88,4 +88,266 @@
     tbody tr{cursor:pointer;transition:.16s ease}
     tbody tr:hover{background:color-mix(in srgb,var(--color-primary-highlight) 34%, var(--color-surface))}
     tbody tr.active{background:color-mix(in srgb,var(--color-primary-highlight) 72%, var(--color-surface));outline:1px solid color-mix(in srgb,var(--color-primary) 24%, transparent)}
-    
+    .status{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;font-size:var(--text-xs);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+    .status::before{content:"";width:8px;height:8px;border-radius:999px;background:currentColor}
+    .status.running{background:color-mix(in srgb,var(--color-success) 14%, var(--color-surface));color:var(--color-success)}
+    .status.stopped{background:color-mix(in srgb,var(--color-error) 14%, var(--color-surface));color:var(--color-error)}
+    .status.paused{background:color-mix(in srgb,var(--color-warning) 18%, var(--color-surface));color:var(--color-warning)}
+    .card-actions{display:flex;gap:var(--space-3);flex-wrap:wrap;padding:0 var(--space-5) var(--space-4)}
+    .filter-select{min-height:34px;min-width:170px;padding:0 12px;border-radius:10px;border:1px solid var(--color-border);background:var(--color-surface-2);color:var(--color-text);font:500 12px/1 var(--font-body);margin-top:8px}
+    .th-filter{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+    .result-positive{color:var(--color-success);font-weight:700}
+    .result-negative{color:var(--color-error);font-weight:700}
+    .mobile-note{display:none;color:var(--color-text-muted);font-size:var(--text-sm);margin-top:var(--space-3)}
+    @media (max-width: 1100px){
+      .overview{grid-template-columns:1fr}
+    }
+    @media (max-width: 720px){
+      .app{padding:var(--space-4)}
+      .topbar,.card-header{align-items:flex-start;flex-direction:column}
+      .toolbar,.card-actions{width:100%}
+      .ghost-btn,.primary-btn,.secondary-btn,.danger-btn,.equal-btn{width:100%}
+      .mobile-note{display:block}
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo" aria-label="Bot control logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v4"/><path d="M7 7h10"/><rect x="5" y="8" width="14" height="10" rx="4"/><path d="M9 12h.01M15 12h.01"/><path d="M9 15c1.2.9 4.8.9 6 0"/>
+          </svg>
+        </div>
+        <div>
+          <h1>Bot Control Board</h1>
+          <p>Панель управления и мониторинга торговых ботов</p>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="primary-btn equal-btn">Добавить бота</button>
+        <button class="ghost-btn equal-btn" data-theme-toggle aria-label="Сменить тему">Тема</button>
+      </div>
+    </header>
+
+    <main class="overview">
+      <section class="card" aria-labelledby="bots-table-title">
+        <div class="card-header">
+          <div>
+            <h2 id="bots-table-title" class="card-title">Торговые боты</h2>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Название</th>
+                <th>Дата запуска</th>
+                <th>Пара</th>
+                <th>Биржа</th>
+                <th>Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="active">
+                <td><strong>Impulse BTC 1m</strong></td>
+                <td>11.07.2026</td>
+                <td>BTC/USDT</td>
+                <td>Binance Demo</td>
+                <td><span class="status running">Running</span></td>
+              </tr>
+              <tr>
+                <td><strong>ETH Breakout 5m</strong></td>
+                <td>10.07.2026</td>
+                <td>ETH/USDT</td>
+                <td>Binance Demo</td>
+                <td><span class="status paused">Paused</span></td>
+              </tr>
+              <tr>
+                <td><strong>SOL Range Demo</strong></td>
+                <td>08.07.2026</td>
+                <td>SOL/USDT</td>
+                <td>Bybit Demo</td>
+                <td><span class="status stopped">Stopped</span></td>
+              </tr>
+              <tr>
+                <td><strong>Momentum Watcher</strong></td>
+                <td>07.07.2026</td>
+                <td>BNB/USDT</td>
+                <td>OKX Demo</td>
+                <td><span class="status running">Running</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="mobile-note">На мобильном можно скроллить таблицу по горизонтали.</p>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="work-log-title">
+        <div class="card-header">
+          <div>
+            <h2 id="work-log-title" class="card-title">История работы бота</h2>
+          </div>
+        </div>
+        <div class="card-actions">
+          <button class="primary-btn equal-btn">Запуск</button>
+          <button class="danger-btn equal-btn">Стоп</button>
+          <button class="secondary-btn equal-btn">Проверка</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>
+                  <div class="th-filter">
+                    <select class="filter-select" id="eventFilter" aria-label="Фильтр по событиям">
+                      <option>Все события</option>
+                      <option>Запуск бота</option>
+                      <option>Остановка бота</option>
+                      <option>Пробный запрос</option>
+                      <option>Ошибка биржи</option>
+                    </select>
+                  </div>
+                </th>
+                <th>Дата / время</th>
+                <th>Комментарий</th>
+              </tr>
+            </thead>
+            <tbody id="workLogBody">
+              <tr data-event="Пробный запрос">
+                <td>Пробный запрос</td>
+                <td>11.07.2026 18:44:10</td>
+                <td>Binance API доступен, latency 182 ms</td>
+              </tr>
+              <tr data-event="Запуск бота">
+                <td>Запуск бота</td>
+                <td>11.07.2026 18:41:03</td>
+                <td>Workflow активирован вручную</td>
+              </tr>
+              <tr data-event="Остановка бота">
+                <td>Остановка бота</td>
+                <td>11.07.2026 16:12:44</td>
+                <td>Остановлен перед обновлением логики входа</td>
+              </tr>
+              <tr data-event="Ошибка биржи">
+                <td>Ошибка биржи</td>
+                <td>11.07.2026 15:07:51</td>
+                <td>Rejected by exchange: insufficient balance</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <section class="stack" style="margin-top: var(--space-6);">
+      <section class="card" aria-labelledby="trade-log-title">
+        <div class="card-header">
+          <div>
+            <h2 id="trade-log-title" class="card-title">История торговли</h2>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID сделки</th>
+                <th>Открытие</th>
+                <th>Закрытие</th>
+                <th>Пара</th>
+                <th>Side</th>
+                <th>Qty</th>
+                <th>Вход</th>
+                <th>Выход</th>
+                <th>Комиссия</th>
+                <th>Причина закрытия</th>
+                <th>Результат</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>#TR-2451</td>
+                <td>11.07.2026 18:02</td>
+                <td>11.07.2026 18:15</td>
+                <td>BTC/USDT</td>
+                <td>LONG</td>
+                <td>0.018</td>
+                <td>117240.5</td>
+                <td>117812.4</td>
+                <td>4.12 USDT</td>
+                <td>Take Profit</td>
+                <td class="result-positive">+6.17 USDT</td>
+              </tr>
+              <tr>
+                <td>#TR-2448</td>
+                <td>11.07.2026 17:24</td>
+                <td>11.07.2026 17:31</td>
+                <td>BTC/USDT</td>
+                <td>LONG</td>
+                <td>0.017</td>
+                <td>117020.0</td>
+                <td>116781.2</td>
+                <td>3.96 USDT</td>
+                <td>Stop Loss</td>
+                <td class="result-negative">-8.43 USDT</td>
+              </tr>
+              <tr>
+                <td>#TR-2440</td>
+                <td>11.07.2026 16:48</td>
+                <td>11.07.2026 17:06</td>
+                <td>BTC/USDT</td>
+                <td>LONG</td>
+                <td>0.019</td>
+                <td>116904.8</td>
+                <td>117455.1</td>
+                <td>4.20 USDT</td>
+                <td>Manual Exit</td>
+                <td class="result-positive">+10.28 USDT</td>
+              </tr>
+              <tr>
+                <td>#TR-2434</td>
+                <td>11.07.2026 15:39</td>
+                <td>11.07.2026 15:45</td>
+                <td>BTC/USDT</td>
+                <td>LONG</td>
+                <td>0.016</td>
+                <td>116740.3</td>
+                <td>116625.9</td>
+                <td>3.74 USDT</td>
+                <td>Signal Invalidated</td>
+                <td class="result-negative">-5.57 USDT</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  </div>
+
+  <script>
+    (function(){
+      const root = document.documentElement;
+      const btn = document.querySelector('[data-theme-toggle]');
+      const eventFilter = document.getElementById('eventFilter');
+      const rows = Array.from(document.querySelectorAll('#workLogBody tr'));
+      let theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      root.setAttribute('data-theme', theme);
+      const applyLabel = () => { btn.textContent = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'; };
+      applyLabel();
+      btn.addEventListener('click', () => {
+        theme = theme === 'dark' ? 'light' : 'dark';
+        root.setAttribute('data-theme', theme);
+        applyLabel();
+      });
+      eventFilter.addEventListener('change', () => {
+        const value = eventFilter.value;
+        rows.forEach((row) => {
+          const matches = value === 'Все события' || row.dataset.event === value;
+          row.style.display = matches ? '' : 'none';
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
