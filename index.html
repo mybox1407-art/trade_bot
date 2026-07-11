@@ -94,6 +94,8 @@
     .status.stopped{background:color-mix(in srgb,var(--color-error) 14%, var(--color-surface));color:var(--color-error)}
     .status.paused{background:color-mix(in srgb,var(--color-warning) 18%, var(--color-surface));color:var(--color-warning)}
     .card-actions{display:flex;gap:var(--space-3);flex-wrap:wrap;padding:0 var(--space-5) var(--space-4)}
+    .card-filters{display:flex;gap:var(--space-3);flex-wrap:wrap;padding:0 var(--space-5) var(--space-4)}
+    .filter-select{min-height:44px;min-width:220px;padding:0 var(--space-4);border-radius:999px;border:1px solid var(--color-border);background:var(--color-surface-2);color:var(--color-text);font:500 var(--text-sm)/1 var(--font-body)}
     .result-positive{color:var(--color-success);font-weight:700}
     .result-negative{color:var(--color-error);font-weight:700}
     .mobile-note{display:none;color:var(--color-text-muted);font-size:var(--text-sm);margin-top:var(--space-3)}
@@ -140,7 +142,6 @@
           <table>
             <thead>
               <tr>
-                <th>Идентификатор</th>
                 <th>Название</th>
                 <th>Дата запуска</th>
                 <th>Пара</th>
@@ -150,7 +151,6 @@
             </thead>
             <tbody>
               <tr class="active">
-                <td>bot_001</td>
                 <td><strong>Impulse BTC 1m</strong></td>
                 <td>11.07.2026</td>
                 <td>BTC/USDT</td>
@@ -158,7 +158,6 @@
                 <td><span class="status running">Running</span></td>
               </tr>
               <tr>
-                <td>bot_002</td>
                 <td><strong>ETH Breakout 5m</strong></td>
                 <td>10.07.2026</td>
                 <td>ETH/USDT</td>
@@ -166,7 +165,6 @@
                 <td><span class="status paused">Paused</span></td>
               </tr>
               <tr>
-                <td>bot_003</td>
                 <td><strong>SOL Range Demo</strong></td>
                 <td>08.07.2026</td>
                 <td>SOL/USDT</td>
@@ -174,7 +172,6 @@
                 <td><span class="status stopped">Stopped</span></td>
               </tr>
               <tr>
-                <td>bot_004</td>
                 <td><strong>Momentum Watcher</strong></td>
                 <td>07.07.2026</td>
                 <td>BNB/USDT</td>
@@ -198,39 +195,43 @@
           <button class="danger-btn equal-btn">Стоп</button>
           <button class="secondary-btn equal-btn">Проверка</button>
         </div>
+        <div class="card-filters">
+          <select class="filter-select" id="eventFilter" aria-label="Фильтр по событиям">
+            <option>Все события</option>
+            <option>Запуск бота</option>
+            <option>Остановка бота</option>
+            <option>Пробный запрос</option>
+            <option>Ошибка биржи</option>
+          </select>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>Событие</th>
                 <th>Дата / время</th>
-                <th>Статус</th>
                 <th>Комментарий</th>
               </tr>
             </thead>
-            <tbody>
-              <tr>
+            <tbody id="workLogBody">
+              <tr data-event="Пробный запрос">
                 <td>Пробный запрос</td>
                 <td>11.07.2026 18:44:10</td>
-                <td><span class="status running">Success</span></td>
                 <td>Binance API доступен, latency 182 ms</td>
               </tr>
-              <tr>
+              <tr data-event="Запуск бота">
                 <td>Запуск бота</td>
                 <td>11.07.2026 18:41:03</td>
-                <td><span class="status running">Success</span></td>
                 <td>Workflow активирован вручную</td>
               </tr>
-              <tr>
+              <tr data-event="Остановка бота">
                 <td>Остановка бота</td>
                 <td>11.07.2026 16:12:44</td>
-                <td><span class="status paused">Stopped</span></td>
                 <td>Остановлен перед обновлением логики входа</td>
               </tr>
-              <tr>
+              <tr data-event="Ошибка биржи">
                 <td>Ошибка биржи</td>
                 <td>11.07.2026 15:07:51</td>
-                <td><span class="status stopped">Error</span></td>
                 <td>Rejected by exchange: insufficient balance</td>
               </tr>
             </tbody>
@@ -327,11 +328,31 @@
     (function(){
       const root = document.documentElement;
       const btn = document.querySelector('[data-theme-toggle]');
+      const eventFilter = document.getElementById('eventFilter');
+      const rows = Array.from(document.querySelectorAll('#workLogBody tr'));
       let theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+
       root.setAttribute('data-theme', theme);
-      const applyLabel = () => { btn.textContent = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'; };
+
+      const applyLabel = () => {
+        btn.textContent = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
+      };
+
       applyLabel();
-      btn.addEventListener('click', () => { theme = theme === 'dark' ? 'light' : 'dark'; root.setAttribute('data-theme', theme); applyLabel(); });
+
+      btn.addEventListener('click', () => {
+        theme = theme === 'dark' ? 'light' : 'dark';
+        root.setAttribute('data-theme', theme);
+        applyLabel();
+      });
+
+      eventFilter.addEventListener('change', () => {
+        const value = eventFilter.value;
+        rows.forEach((row) => {
+          const matches = value === 'Все события' || row.dataset.event === value;
+          row.style.display = matches ? '' : 'none';
+        });
+      });
     })();
   </script>
 </body>
