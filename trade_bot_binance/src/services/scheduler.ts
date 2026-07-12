@@ -2,47 +2,58 @@ import cron from 'node-cron';
 import { getCandles, getCurrentPrice } from './exchange';
 import { analyzeMarket } from './strategy';
 import { getPosition, openPosition, closePosition } from './positionState';
-import { logTrade } from './logger';
+import { logSignalCheck, logTrade } from './logger';
 
 const SYMBOL = 'BTC/USDT';
 const ENTRY_TIMEFRAME = '15m';
 
 export function startScheduler() {
   cron.schedule('*/15 * * * *', async () => {
-    if (getPosition()) return;
-
     const candles = await getCandles(SYMBOL, ENTRY_TIMEFRAME, 250);
     if (candles.length < 200) return;
 
     const result = analyzeMarket(candles);
-    console.log('[ENTRY CHECK]', new Date().toISOString(), result.buy, result.price);
+    const positionOpen = !!getPosition();
 
-    if (result.buy && result.takeProfitPrice && result.stopLossPrice) {
-      openPosition({
-        symbol: SYMBOL,
-        entryPrice: result.price,
-        takeProfitPrice: result.takeProfitPrice,
-        stopLossPrice: result.stopLossPrice,
-        openedAt: new Date().toISOString()
-      });
+    logSignalCheck({
+      time: new Date().toISOString(),
+      symbol: SYMBOL,
+      price: result.price,
+      buy: result.buy,
+      trendUp: result.indicators.trendUp,
+      macdCrossUp: result.indicators.macdCrossUp,
+      rsiOk: result.indicators.rsiOk,
+      lastRsi: result.indicators.lastRsi.toFixed(2),
+      lastAtr: result.indicators.lastAtr.toFixed(2),
+      positionAlreadyOpen: positionOpen,
+      actionTaken: !positionOpen && result.buy ? 'OPEN' : 'SKIP'
+    });
 
-      logTrade({
-        event: 'OPEN',
-        symbol: SYMBOL,
-        entryPrice: result.price,
-        takeProfitPrice: result.takeProfitPrice,
-        stopLossPrice: result.stopLossPrice,
-        time: new Date().toISOString()
-      });
-    }
+    if (positionOpen || !result.buy || !result.takeProfitPrice || !result.stopLossPrice) return;
+
+    openPosition({
+      symbol: SYMBOL,
+      entryPrice: result.price,
+      takeProfitPrice: result.takeProfitPrice,
+      stopLossPrice: result.stopLossPrice,
+      openedAt: new Date().toISOString()
+    });
+
+    logTrade({
+      event: 'OPEN',
+      symbol: SYMBOL,
+      entryPrice: result.price,
+      takeProfitPrice: result.takeProfitPrice,
+      stopLossPrice: result.stopLossPrice,
+      time: new Date().toISOString()
+    });
   });
 
-  cron.schedule('* * * * *', async () => {
+  cron.schedule('*/15 * * * * *', async () => {
     const position = getPosition();
     if (!position) return;
 
     const price = await getCurrentPrice(position.symbol);
-    console.log('[MONITOR]', new Date().toISOString(), 'price:', price);
 
     if (price >= position.takeProfitPrice) {
       logTrade({
