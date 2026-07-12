@@ -10,14 +10,15 @@ const ENTRY_TIMEFRAME = '15m';
 export function startScheduler() {
   console.log('[SCHEDULER] Starting scheduler...');
 
-  cron.schedule('* * * * *', async () => {
+  // Проверка сигнала на вход — раз в 15 минут
+  cron.schedule('*/15 * * * *', async () => {
     console.log('[ENTRY CHECK] Triggered at', new Date().toISOString());
     try {
       const candles = await getCandles(SYMBOL, ENTRY_TIMEFRAME, 250);
       console.log('[ENTRY CHECK] Candles fetched:', candles.length);
 
       if (candles.length < 200) {
-        console.log('[ENTRY CHECK] Not enough candles, skipping.');
+        console.log('[ENTRY CHECK] Недостаточно свечей, пропускаем проверку.');
         return;
       }
 
@@ -44,6 +45,7 @@ export function startScheduler() {
 
       if (positionOpen || !result.buy || !result.takeProfitPrice || !result.stopLossPrice) return;
 
+      // Открываем виртуальную позицию
       openPosition({
         symbol: SYMBOL,
         entryPrice: result.price,
@@ -65,6 +67,7 @@ export function startScheduler() {
     }
   });
 
+  // Мониторинг открытой позиции — каждые 15 секунд
   cron.schedule('*/15 * * * * *', async () => {
     try {
       const position = getPosition();
@@ -74,6 +77,7 @@ export function startScheduler() {
       console.log('[MONITOR] price:', price);
 
       if (price >= position.takeProfitPrice) {
+        // Закрываем по тейк-профиту
         logTrade({
           event: 'CLOSE_TP',
           symbol: position.symbol,
@@ -85,6 +89,7 @@ export function startScheduler() {
         });
         closePosition();
       } else if (price <= position.stopLossPrice) {
+        // Закрываем по стоп-лоссу
         logTrade({
           event: 'CLOSE_SL',
           symbol: position.symbol,
