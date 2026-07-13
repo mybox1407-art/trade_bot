@@ -65,7 +65,7 @@
     .brand h1{font:700 var(--text-xl)/1.05 var(--font-display);letter-spacing:-.03em}
     .brand p{color:var(--color-text-muted);font-size:var(--text-sm)}
     .toolbar{display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap}
-    .ghost-btn,.primary-btn,.secondary-btn,.danger-btn,.equal-btn{min-height:44px;padding:0 var(--space-4);border-radius:999px;font-size:var(--text-sm);font-weight:600;transition:.18s ease}
+    .ghost-btn,.primary-btn,.equal-btn{min-height:44px;padding:0 var(--space-4);border-radius:999px;font-size:var(--text-sm);font-weight:600;transition:.18s ease}
     .ghost-btn{border:1px solid var(--color-border);background:var(--color-surface);min-width:146px}
     .ghost-btn:hover{background:var(--color-surface-2)}
     .primary-btn{background:var(--color-primary);color:#fff}
@@ -112,7 +112,7 @@
         </div>
         <div>
           <h1>Bot Control Board</h1>
-          <p>Панель мониторинга торговых ботов</p>
+          <p>Панель управления и мониторинга торговых ботов</p>
         </div>
       </div>
       <div class="toolbar">
@@ -287,13 +287,16 @@
       }
 
       function renderSignalsTable() {
-        if (!signalsState.length) {
+        workLogBody.innerHTML = '';
+        if (!Array.isArray(signalsState) || signalsState.length === 0) {
           workLogBody.innerHTML = `<tr><td colspan="11">Сигналы не найдены</td></tr>`;
           return;
         }
 
-        workLogBody.innerHTML = signalsState.map((signal) => `
-          <tr>
+        const frag = document.createDocumentFragment();
+        signalsState.forEach((signal) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
             <td>${formatDate(signal.created_at)}</td>
             <td>${signal.timeframe ?? '-'}</td>
             <td>${formatNumber(signal.price, 8)}</td>
@@ -305,8 +308,10 @@
             <td>${formatNumber(signal.last_rsi, 4)}</td>
             <td>${formatNumber(signal.last_atr, 8)}</td>
             <td>${boolLabel(signal.indicators_ready)}</td>
-          </tr>
-        `).join('');
+          `;
+          frag.appendChild(tr);
+        });
+        workLogBody.appendChild(frag);
       }
 
       function renderBotDetails(bot) {
@@ -375,6 +380,8 @@
 
           const json = await res.json();
           signalsState = normalizeResponse(json);
+          console.log('signalsState length:', signalsState.length);
+          console.table(signalsState);
           renderSignalsTable();
         } catch (error) {
           console.error('loadSignals error:', error);
