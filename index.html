@@ -21,10 +21,8 @@
       --color-bg: #f7f6f2;
       --color-surface: #fbfaf7;
       --color-surface-2: #f2efea;
-      --color-surface-offset: #ebe6df;
       --color-text: #24211d;
       --color-text-muted: #706e69;
-      --color-text-faint: #a5a39f;
       --color-primary: #0d6b73;
       --color-primary-hover: #0a575d;
       --color-primary-highlight: #d8e8e8;
@@ -35,16 +33,14 @@
       --color-divider: rgba(36,33,29,0.08);
       --shadow-sm: 0 1px 2px rgba(26,22,17,.05), 0 8px 24px rgba(26,22,17,.04);
       --shadow-md: 0 2px 6px rgba(26,22,17,.06), 0 18px 44px rgba(26,22,17,.08);
-      --radius-sm: 0.5rem; --radius-md: 0.85rem; --radius-lg: 1.1rem; --radius-xl: 1.4rem;
+      --radius-xl: 1.4rem;
     }
     [data-theme="dark"] {
       --color-bg: #171614;
       --color-surface: #201e1b;
       --color-surface-2: #26231f;
-      --color-surface-offset: #2f2c27;
       --color-text: #e5e1da;
       --color-text-muted: #aaa59d;
-      --color-text-faint: #767068;
       --color-primary: #5fa9b1;
       --color-primary-hover: #7ec3ca;
       --color-primary-highlight: #2b3a3c;
@@ -95,10 +91,6 @@
     .status.stopped{background:color-mix(in srgb,var(--color-error) 14%, var(--color-surface));color:var(--color-error)}
     .status.paused{background:color-mix(in srgb,var(--color-warning) 18%, var(--color-surface));color:var(--color-warning)}
     .card-actions{display:flex;gap:var(--space-3);flex-wrap:wrap;padding:0 var(--space-5) var(--space-4)}
-    .filter-select{min-height:34px;min-width:170px;padding:0 12px;border-radius:10px;border:1px solid var(--color-border);background:var(--color-surface-2);color:var(--color-text);font:500 12px/1 var(--font-body);margin-top:8px}
-    .th-filter{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
-    .result-positive{color:var(--color-success);font-weight:700}
-    .result-negative{color:var(--color-error);font-weight:700}
     .mobile-note{display:none;color:var(--color-text-muted);font-size:var(--text-sm);margin-top:var(--space-3)}
     @media (max-width: 1100px){.overview{grid-template-columns:1fr}}
     @media (max-width: 720px){
@@ -133,9 +125,7 @@
     <main class="overview">
       <section class="card" aria-labelledby="bots-table-title">
         <div class="card-header">
-          <div>
-            <h2 id="bots-table-title" class="card-title">Торговые боты</h2>
-          </div>
+          <h2 id="bots-table-title" class="card-title">Торговые боты</h2>
         </div>
         <div class="table-wrap fixed-table">
           <table>
@@ -158,9 +148,7 @@
 
       <section class="card" aria-labelledby="work-log-title">
         <div class="card-header">
-          <div>
-            <h2 id="work-log-title" class="card-title">История работы бота</h2>
-          </div>
+          <h2 id="work-log-title" class="card-title">История работы бота</h2>
         </div>
         <div class="card-actions">
           <button class="primary-btn equal-btn">Запуск</button>
@@ -171,41 +159,21 @@
           <table>
             <thead>
               <tr>
-                <th>
-                  <div class="th-filter">
-                    <select class="filter-select" id="eventFilter" aria-label="Фильтр по событиям">
-                      <option>Все события</option>
-                      <option>Запуск бота</option>
-                      <option>Остановка бота</option>
-                      <option>Пробный запрос</option>
-                      <option>Ошибка биржи</option>
-                    </select>
-                  </div>
-                </th>
-                <th>
-                  <div class="th-filter">
-                    <div class="date-range-filter">
-                      <input class="date-input" type="date" id="dateFrom" aria-label="Дата от">
-                      <input class="date-input" type="date" id="dateTo" aria-label="Дата до">
-                    </div>
-                  </div>
-                </th>
+                <th>Событие</th>
+                <th>Дата</th>
                 <th>Комментарий</th>
               </tr>
             </thead>
             <tbody id="workLogBody"></tbody>
           </table>
         </div>
-        <div class="pagination" id="workLogPagination"></div>
       </section>
     </main>
 
     <section class="stack" style="margin-top: var(--space-6);">
       <section class="card" aria-labelledby="trade-log-title">
         <div class="card-header">
-          <div>
-            <h2 id="trade-log-title" class="card-title">История торговли</h2>
-          </div>
+          <h2 id="trade-log-title" class="card-title">История торговли</h2>
         </div>
         <div class="table-wrap">
           <table>
@@ -235,25 +203,24 @@
     (function () {
       const root = document.documentElement;
       const themeBtn = document.querySelector('[data-theme-toggle]');
-      const eventFilter = document.getElementById('eventFilter');
-      const dateFrom = document.getElementById('dateFrom');
-      const dateTo = document.getElementById('dateTo');
       const botsTableBody = document.getElementById('botsTableBody');
       const workLogBody = document.getElementById('workLogBody');
       const tradeLogBody = document.getElementById('tradeLogBody');
-      const workLogPagination = document.getElementById('workLogPagination');
-      const rowsPerPage = 5;
 
       let theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      let currentBotKey = null;
-      let currentPage = 1;
-      let botsCache = [];
-      root.setAttribute('data-theme', theme);
+      let botsState = [];
+      let currentBotId = null;
 
-      const botData = {};
+      root.setAttribute('data-theme', theme);
 
       function applyThemeLabel() {
         themeBtn.textContent = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
+      }
+
+      function normalizeBotsResponse(json) {
+        if (Array.isArray(json)) return json;
+        if (json && typeof json === 'object') return [json];
+        return [];
       }
 
       function statusClass(status) {
@@ -277,27 +244,16 @@
         return d.toLocaleDateString('ru-RU');
       }
 
-      function botKey(bot) {
-        return bot.id_bot ?? `${bot.name_bot || ''}-${bot.couple || ''}`.toLowerCase().replace(/\s+/g, '-');
-      }
-
-      function toComparableDate(value) {
-        const [datePart] = value.split(' ');
-        const [dd, mm, yyyy] = datePart.split('.');
-        return new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
-      }
-
-      function renderBotsTable(bots) {
-        if (!Array.isArray(bots) || !bots.length) {
-          botsTableBody.innerHTML = `<tr><td colspan="5">Боты не найдены.</td></tr>`;
+      function renderBotsTable() {
+        if (!botsState.length) {
+          botsTableBody.innerHTML = `<tr><td colspan="5">Боты не найдены</td></tr>`;
           return;
         }
 
-        botsTableBody.innerHTML = bots.map((bot) => {
-          const key = botKey(bot);
-          const active = currentBotKey ? currentBotKey === key : false;
+        botsTableBody.innerHTML = botsState.map((bot) => {
+          const isActive = String(bot.id_bot) === String(currentBotId);
           return `
-            <tr class="${active ? 'active' : ''}" data-bot-key="${key}">
+            <tr data-bot-id="${bot.id_bot}" class="${isActive ? 'active' : ''}">
               <td><strong>${bot.name_bot ?? '-'}</strong></td>
               <td>${formatDate(bot.date_start)}</td>
               <td>${bot.couple ?? '-'}</td>
@@ -308,115 +264,59 @@
         }).join('');
       }
 
-      function getFilteredWorkLog() {
-        const data = botData[currentBotKey]?.workLog || [];
-        const eventValue = eventFilter.value;
-        const fromValue = dateFrom.value ? new Date(`${dateFrom.value}T00:00:00`) : null;
-        const toValue = dateTo.value ? new Date(`${dateTo.value}T23:59:59`) : null;
-
-        return data.filter((item) => {
-          const matchesEvent = eventValue === 'Все события' || item[0] === eventValue;
-          const itemDate = toComparableDate(item[1]);
-          const matchesFrom = !fromValue || itemDate >= fromValue;
-          const matchesTo = !toValue || itemDate <= toValue;
-          return matchesEvent && matchesFrom && matchesTo;
-        });
-      }
-
-      function renderPagination(totalPages) {
-        workLogPagination.innerHTML = '';
-        if (totalPages <= 1) return;
-
-        for (let page = 1; page <= totalPages; page += 1) {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.className = `page-btn${page === currentPage ? ' active' : ''}`;
-          button.textContent = page;
-          button.addEventListener('click', () => {
-            currentPage = page;
-            renderWorkLogPage();
-          });
-          workLogPagination.appendChild(button);
+      function renderBotDetails(bot) {
+        if (!bot) {
+          workLogBody.innerHTML = `<tr><td colspan="3">Нет данных.</td></tr>`;
+          tradeLogBody.innerHTML = `<tr><td colspan="11">Нет данных.</td></tr>`;
+          return;
         }
-      }
 
-      function renderWorkLogPage() {
-        const filtered = getFilteredWorkLog();
-        const totalPages = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
-        if (currentPage > totalPages) currentPage = totalPages;
-        const start = (currentPage - 1) * rowsPerPage;
-        const pageRows = filtered.slice(start, start + rowsPerPage);
-
-        workLogBody.innerHTML = pageRows.map((item) => `
-          <tr data-event="${item[0]}">
-            <td>${item[0]}</td>
-            <td>${item[1]}</td>
-            <td>${item[2]}</td>
+        workLogBody.innerHTML = `
+          <tr>
+            <td>Выбран бот</td>
+            <td>${formatDate(bot.date_start)}</td>
+            <td>${bot.name_bot ?? '-'}</td>
           </tr>
-        `).join('');
+        `;
 
-        if (!pageRows.length) {
-          workLogBody.innerHTML = `<tr><td colspan="3">Нет записей за выбранный период.</td></tr>`;
-        }
-
-        renderPagination(totalPages);
+        tradeLogBody.innerHTML = `
+          <tr>
+            <td colspan="11">История торговли для бота "${bot.name_bot ?? '-'}" пока не подключена.</td>
+          </tr>
+        `;
       }
 
-      function renderTrades(rows) {
-        tradeLogBody.innerHTML = (rows || []).map((item) => {
-          const resultClass = item[10].trim().startsWith('+') ? 'result-positive' : 'result-negative';
-          return `
-            <tr>
-              <td>${item[0]}</td>
-              <td>${item[1]}</td>
-              <td>${item[2]}</td>
-              <td>${item[3]}</td>
-              <td>${item[4]}</td>
-              <td>${item[5]}</td>
-              <td>${item[6]}</td>
-              <td>${item[7]}</td>
-              <td>${item[8]}</td>
-              <td>${item[9]}</td>
-              <td class="${resultClass}">${item[10]}</td>
-            </tr>
-          `;
-        }).join('');
-      }
-
-      function selectBot(botKeyValue) {
-        currentBotKey = botKeyValue;
-        Array.from(botsTableBody.querySelectorAll('tr')).forEach((row) => {
-          row.classList.toggle('active', row.dataset.botKey === botKeyValue);
-        });
-        renderWorkLogPage();
-        renderTrades(botData[currentBotKey]?.trades || []);
+      function selectBot(botId) {
+        currentBotId = botId;
+        renderBotsTable();
+        renderBotDetails(botsState.find((b) => String(b.id_bot) === String(botId)));
       }
 
       async function loadBots() {
         botsTableBody.innerHTML = `<tr><td colspan="5">Загрузка...</td></tr>`;
+
         try {
           const res = await fetch('https://n8n.kino-test.ru/webhook/get_bots', {
-            method: 'POST',
+            method: 'GET',
             headers: { 'Accept': 'application/json' }
           });
 
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
           const json = await res.json();
-          const bots = Array.isArray(json) ? json : (json.data || json.bots || []);
-          botsCache = bots;
-          renderBotsTable(botsCache);
+          botsState = normalizeBotsResponse(json);
 
-          if (botsCache.length) {
-            currentBotKey = botKey(botsCache[0]);
-            selectBot(currentBotKey);
-          } else {
-            tradeLogBody.innerHTML = '';
-            workLogBody.innerHTML = `<tr><td colspan="3">Нет данных.</td></tr>`;
+          if (!botsState.length) {
+            botsTableBody.innerHTML = `<tr><td colspan="5">Боты не найдены</td></tr>`;
+            return;
           }
+
+          currentBotId = botsState[0].id_bot;
+          renderBotsTable();
+          renderBotDetails(botsState[0]);
         } catch (error) {
-          console.error(error);
-          botsTableBody.innerHTML = `<tr><td colspan="5">Ошибка загрузки ботов.</td></tr>`;
+          console.error('loadBots error:', error);
+          botsTableBody.innerHTML = `<tr><td colspan="5">Ошибка загрузки ботов</td></tr>`;
         }
       }
 
@@ -428,25 +328,10 @@
         applyThemeLabel();
       });
 
-      eventFilter.addEventListener('change', () => {
-        currentPage = 1;
-        renderWorkLogPage();
-      });
-
-      dateFrom.addEventListener('change', () => {
-        currentPage = 1;
-        renderWorkLogPage();
-      });
-
-      dateTo.addEventListener('change', () => {
-        currentPage = 1;
-        renderWorkLogPage();
-      });
-
       botsTableBody.addEventListener('click', (event) => {
-        const row = event.target.closest('tr[data-bot-key]');
+        const row = event.target.closest('tr[data-bot-id]');
         if (!row) return;
-        selectBot(row.dataset.botKey);
+        selectBot(row.dataset.botId);
       });
 
       loadBots();
