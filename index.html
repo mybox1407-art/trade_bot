@@ -147,14 +147,12 @@
         </div>
       </section>
 
-      <section class="card" aria-labelledby="work-log-title">
+      <section class="card" aria-labelledby="signals-title">
         <div class="card-header">
-          <h2 id="work-log-title" class="card-title">История работы бота</h2>
+          <h2 id="signals-title" class="card-title">История сигналов</h2>
         </div>
         <div class="card-actions">
-          <button class="primary-btn equal-btn">Запуск</button>
-          <button class="danger-btn equal-btn">Стоп</button>
-          <button class="secondary-btn equal-btn">Проверка</button>
+          <button class="primary-btn equal-btn" id="refreshSignalsBtn">Обновить</button>
         </div>
         <div class="table-wrap fixed-table">
           <table>
@@ -204,6 +202,7 @@
     (function () {
       const root = document.documentElement;
       const themeBtn = document.querySelector('[data-theme-toggle]');
+      const refreshSignalsBtn = document.getElementById('refreshSignalsBtn');
       const botsTableBody = document.getElementById('botsTableBody');
       const workLogBody = document.getElementById('workLogBody');
       const tradeLogBody = document.getElementById('tradeLogBody');
@@ -298,7 +297,7 @@
 
         try {
           const res = await fetch('https://n8n.kino-test.ru/webhook/get_bots', {
-            method: 'POST',
+            method: 'GET',
             headers: { 'Accept': 'application/json' }
           });
 
@@ -327,6 +326,10 @@
         theme = theme === 'dark' ? 'light' : 'dark';
         root.setAttribute('data-theme', theme);
         applyThemeLabel();
+      });
+
+      refreshSignalsBtn.addEventListener('click', () => {
+        renderBotDetails(botsState.find((b) => String(b.id_bot) === String(currentBotId)));
       });
 
       botsTableBody.addEventListener('click', (event) => {
