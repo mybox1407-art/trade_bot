@@ -15,6 +15,7 @@ export async function runBotOnce() {
   return {
     symbol,
     timeframe,
+    ready: true,
     ...result
   };
 }
