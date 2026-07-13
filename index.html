@@ -330,6 +330,7 @@
         currentBotId = botId;
         renderBotsTable();
         renderBotDetails(botsState.find((b) => String(b.id_bot) === String(botId)));
+        loadSignals();
       }
 
       async function loadBots() {
@@ -364,7 +365,13 @@
         try {
           const res = await fetch('https://n8n.kino-test.ru/webhook/get_signals', {
             method: 'POST',
-            headers: { 'Accept': 'application/json' }
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              id_bot: Number(currentBotId)
+            })
           });
 
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
