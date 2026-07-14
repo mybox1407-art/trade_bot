@@ -197,7 +197,7 @@
               </tr>
             </thead>
             <tbody id="workLogBody">
-              <tr><td colspan="17">Загрузка...</td></tr>
+              <tr><td colspan="11">Загрузка...</td></tr>
             </tbody>
           </table>
         </div>
@@ -311,6 +311,27 @@
         return null;
       }
 
+      function sideLabel(side) {
+        const s = String(side || '').toLowerCase();
+        if (s === 'none') return '-';
+        if (s === 'long') return 'long';
+        if (s === 'short') return 'short';
+        return side ?? '-';
+      }
+
+      function regimeLabel(regime) {
+        const s = String(regime || '').toLowerCase();
+        const map = {
+          range: 'боковик',
+          trend_up: 'тренд вверх',
+          trend_down: 'тренд вниз',
+          breakout_watch: 'ожидание пробоя',
+          high_volatility: 'высокая волатильность',
+          unknown: 'неизвестно'
+        };
+        return map[s] ?? regime ?? '-';
+      }
+
       function getFilteredSignals() {
         const days = daysFromPeriod(periodFilterValue);
         const now = new Date();
@@ -364,7 +385,7 @@
         nextPageBtn.disabled = currentPage >= pageCount;
 
         if (!pageItems.length) {
-          workLogBody.innerHTML = `<tr><td colspan="17">Сигналы не найдены</td></tr>`;
+          workLogBody.innerHTML = `<tr><td colspan="11">Сигналы не найдены</td></tr>`;
           return;
         }
 
@@ -376,8 +397,8 @@
               <td>${formatDate(signal.created_at)}</td>
               <td>${signal.timeframe ?? '-'}</td>
               <td>${formatNumber(signal.price, 8)}</td>
-              <td>${signal.side ?? '-'}</td>
-              <td>${signal.regime ?? '-'}</td>
+              <td>${sideLabel(signal.side)}</td>
+              <td>${regimeLabel(signal.regime)}</td>
               <td>${signal.position_size != null ? formatNumber(signal.position_size, 12) : '-'}</td>
               <td>${signal.take_profit_price != null ? formatNumber(signal.take_profit_price, 8) : '-'}</td>
               <td>${signal.stop_loss_price != null ? formatNumber(signal.stop_loss_price, 8) : '-'}</td>
@@ -437,11 +458,11 @@
 
       async function loadSignals(botId = currentBotId) {
         if (!botId) {
-          workLogBody.innerHTML = `<tr><td colspan="17">Бот не выбран</td></tr>`;
+          workLogBody.innerHTML = `<tr><td colspan="11">Бот не выбран</td></tr>`;
           return;
         }
 
-        workLogBody.innerHTML = `<tr><td colspan="17">Загрузка...</td></tr>`;
+        workLogBody.innerHTML = `<tr><td colspan="11">Загрузка...</td></tr>`;
         try {
           const res = await fetch('https://n8n.kino-test.ru/webhook/get_signals', {
             method: 'POST',
@@ -460,7 +481,7 @@
           renderSignalsTable();
         } catch (error) {
           console.error('loadSignals error:', error);
-          workLogBody.innerHTML = `<tr><td colspan="17">Ошибка загрузки сигналов</td></tr>`;
+          workLogBody.innerHTML = `<tr><td colspan="11">Ошибка загрузки сигналов</td></tr>`;
         }
       }
 
