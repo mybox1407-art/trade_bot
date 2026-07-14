@@ -186,8 +186,6 @@
                 <th>Дата</th>
                 <th>ТФрейм</th>
                 <th>Цена</th>
-                <th>Buy</th>
-                <th>Sell</th>
                 <th>Side</th>
                 <th>Regime</th>
                 <th>Pos Size</th>
@@ -198,8 +196,6 @@
                 <th>RSI OK</th>
                 <th>Last RSI</th>
                 <th>Last ATR</th>
-                <th>ADX</th>
-                <th>BB Width</th>
               </tr>
             </thead>
             <tbody id="workLogBody">
@@ -382,8 +378,6 @@
               <td>${formatDate(signal.created_at)}</td>
               <td>${signal.timeframe ?? '-'}</td>
               <td>${formatNumber(signal.price, 8)}</td>
-              <td>${signal.buy ? 'Да' : 'Нет'}</td>
-              <td>${signal.sell ? 'Да' : 'Нет'}</td>
               <td>${signal.side ?? '-'}</td>
               <td>${signal.regime ?? '-'}</td>
               <td>${signal.position_size != null ? formatNumber(signal.position_size, 12) : '-'}</td>
@@ -394,8 +388,6 @@
               <td>${boolLabel(signal.rsi_ok)}</td>
               <td>${formatNumber(signal.last_rsi, 4)}</td>
               <td>${formatNumber(signal.last_atr, 3)}</td>
-              <td>${signal.adx != null ? formatNumber(signal.adx, 4) : '-'}</td>
-              <td>${signal.bb_width != null ? formatNumber(signal.bb_width, 8) : '-'}</td>
             </tr>
           `;
         }).join('');
