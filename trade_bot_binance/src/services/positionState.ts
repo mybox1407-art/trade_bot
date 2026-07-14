@@ -1,5 +1,6 @@
 export interface VirtualPosition {
   symbol: string;
+  side: 'long' | 'short';
   entryPrice: number;
   quantity: number;
   notional: number;
@@ -10,6 +11,7 @@ export interface VirtualPosition {
 
 export interface ClosedTrade {
   symbol: string;
+  side: 'long' | 'short';
   entryPrice: number;
   exitPrice: number;
   quantity: number;
@@ -39,15 +41,18 @@ export function getLastClosedTrade() {
 }
 
 export function getPositionNotional() {
+  // Размер позиции считаем от текущего баланса
   return balance * POSITION_PERCENT;
 }
 
 export function openPosition(data: {
   symbol: string;
+  side: 'long' | 'short';
   entryPrice: number;
   takeProfitPrice: number;
   stopLossPrice: number;
 }) {
+  // Если уже есть открытая позиция, новую не создаём
   if (currentPosition) {
     return { ok: false, message: 'Position already open', position: currentPosition };
   }
@@ -55,8 +60,10 @@ export function openPosition(data: {
   const notional = getPositionNotional();
   const quantity = notional / data.entryPrice;
 
+  // Сохраняем параметры виртуальной сделки
   currentPosition = {
     symbol: data.symbol,
+    side: data.side,
     entryPrice: data.entryPrice,
     quantity,
     notional,
@@ -73,10 +80,14 @@ export function closePosition(exitPrice: number, reason: 'take_profit' | 'stop_l
     return { ok: false, message: 'No open position' };
   }
 
-  const realizedPnL = (exitPrice - currentPosition.entryPrice) * currentPosition.quantity;
+  // Для long прибыль считается как рост цены, для short — как падение
+  const realizedPnL = currentPosition.side === 'long'
+    ? (exitPrice - currentPosition.entryPrice) * currentPosition.quantity
+    : (currentPosition.entryPrice - exitPrice) * currentPosition.quantity;
 
   lastClosedTrade = {
     symbol: currentPosition.symbol,
+    side: currentPosition.side,
     entryPrice: currentPosition.entryPrice,
     exitPrice,
     quantity: currentPosition.quantity,
@@ -86,6 +97,7 @@ export function closePosition(exitPrice: number, reason: 'take_profit' | 'stop_l
     reason
   };
 
+  // После закрытия обновляем баланс и сбрасываем позицию
   balance = balance + realizedPnL;
   currentPosition = null;
 
