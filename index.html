@@ -184,18 +184,16 @@
             <thead>
               <tr>
                 <th>Дата</th>
-                <th>ТФрейм</th>
+                <th>Интервал</th>
                 <th>Цена</th>
-                <th>Side</th>
-                <th>Regime</th>
-                <th>Pos Size</th>
+                <th>Тип позиции</th>
+                <th>Режим</th>
+                <th>Позиция</th>
                 <th>Тейк</th>
                 <th>Лосс</th>
                 <th>MACD Up</th>
                 <th>MACD Down</th>
-                <th>RSI OK</th>
-                <th>Last RSI</th>
-                <th>Last ATR</th>
+                <th>RSI</th>
               </tr>
             </thead>
             <tbody id="workLogBody">
@@ -386,8 +384,6 @@
               <td>${boolLabel(signal.macd_cross_up)}</td>
               <td>${boolLabel(signal.macd_cross_down)}</td>
               <td>${boolLabel(signal.rsi_ok)}</td>
-              <td>${formatNumber(signal.last_rsi, 4)}</td>
-              <td>${formatNumber(signal.last_atr, 3)}</td>
             </tr>
           `;
         }).join('');
