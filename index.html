@@ -235,7 +235,6 @@
                 <th>Пара</th>
                 <th>Баланс до</th>
                 <th>Стороны</th>
-                <th>Режим</th>
                 <th>Цена</th>
                 <th>Позиция</th>
                 <th>Размер</th>
@@ -493,7 +492,6 @@
               <td>${p.symbol ?? '-'}</td>
               <td>${p.balance_before != null ? formatNumber(p.balance_before, 8) : '-'}</td>
               <td>${sideLabel(p.side)}</td>
-              <td>${p.regime_at_entry ?? '-'}</td>
               <td>${p.entry_price != null ? formatNumber(p.entry_price, 8) : '-'}</td>
               <td>${p.quantity != null ? formatNumber(p.quantity, 12) : '-'}</td>
               <td>${p.notional != null ? formatNumber(p.notional, 8) : '-'}</td>
