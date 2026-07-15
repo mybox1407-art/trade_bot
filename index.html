@@ -166,6 +166,9 @@
             <option value="true">Сигнал = Да</option>
             <option value="false">Сигнал = Нет</option>
           </select>
+          <select id="pairFilter">
+            <option value="all">Пара = Все</option>
+          </select>
           <select id="periodFilter">
             <option value="all">Период = Все</option>
             <option value="day">За день</option>
@@ -184,6 +187,7 @@
             <thead>
               <tr>
                 <th>Дата</th>
+                <th>Пара</th>
                 <th>Интервал</th>
                 <th>Цена</th>
                 <th>Сторона</th>
@@ -197,7 +201,7 @@
               </tr>
             </thead>
             <tbody id="workLogBody">
-              <tr><td colspan="11">Загрузка...</td></tr>
+              <tr><td colspan="12">Загрузка...</td></tr>
             </tbody>
           </table>
         </div>
@@ -241,6 +245,7 @@
       const themeBtn = document.querySelector('[data-theme-toggle]');
       const refreshSignalsBtn = document.getElementById('refreshSignalsBtn');
       const signalFilter = document.getElementById('signalFilter');
+      const pairFilter = document.getElementById('pairFilter');
       const periodFilter = document.getElementById('periodFilter');
       const prevPageBtn = document.getElementById('prevPageBtn');
       const nextPageBtn = document.getElementById('nextPageBtn');
@@ -256,6 +261,7 @@
       let currentPage = 1;
       const pageSize = 5;
       let signalFilterValue = 'all';
+      let pairFilterValue = 'all';
       let periodFilterValue = 'all';
 
       root.setAttribute('data-theme', theme);
@@ -332,17 +338,33 @@
         return map[s] ?? regime ?? '-';
       }
 
+      function getAvailablePairs() {
+        const pairs = [...new Set(signalsState.map(s => String(s.symbol || s.couple || '').trim().toLowerCase()).filter(Boolean))].sort();
+        return pairs;
+      }
+
+      function syncPairFilterOptions() {
+        const pairs = getAvailablePairs();
+        const current = pairFilterValue;
+        pairFilter.innerHTML = '<option value="all">Пара = Все</option>' + pairs.map(p => `<option value="${p}">${p}</option>`).join('');
+        pairFilterValue = pairs.includes(current) ? current : 'all';
+        pairFilter.value = pairFilterValue;
+      }
+
       function getFilteredSignals() {
         const days = daysFromPeriod(periodFilterValue);
         const now = new Date();
 
         return signalsState.filter((s) => {
           const hasSignal = Boolean(s.buy) || Boolean(s.sell);
+          const pair = String(s.symbol || s.couple || '').trim().toLowerCase();
 
           if (signalFilterValue !== 'all') {
             if (signalFilterValue === 'true' && !hasSignal) return false;
             if (signalFilterValue === 'false' && hasSignal) return false;
           }
+
+          if (pairFilterValue !== 'all' && pair !== pairFilterValue) return false;
 
           if (!days) return true;
           const d = new Date(s.created_at);
@@ -391,16 +413,18 @@
         nextPageBtn.disabled = currentPage >= pageCount;
 
         if (!pageItems.length) {
-          workLogBody.innerHTML = `<tr><td colspan="11">Сигналы не найдены</td></tr>`;
+          workLogBody.innerHTML = `<tr><td colspan="12">Сигналы не найдены</td></tr>`;
           return;
         }
 
         workLogBody.innerHTML = pageItems.map((signal) => {
           const hasSignal = Boolean(signal.buy) || Boolean(signal.sell);
           const rowClass = hasSignal ? 'row-signal-true' : 'row-signal-false';
+          const pair = (signal.symbol || signal.couple || '-').toString().toLowerCase();
           return `
             <tr class="${rowClass}">
               <td>${formatDate(signal.created_at)}</td>
+              <td>${pair}</td>
               <td>${signal.timeframe ?? '-'}</td>
               <td>${formatNumber(signal.price, 8)}</td>
               <td>${sideLabel(signal.side)}</td>
@@ -464,11 +488,11 @@
 
       async function loadSignals(botId = currentBotId) {
         if (!botId) {
-          workLogBody.innerHTML = `<tr><td colspan="11">Бот не выбран</td></tr>`;
+          workLogBody.innerHTML = `<tr><td colspan="12">Бот не выбран</td></tr>`;
           return;
         }
 
-        workLogBody.innerHTML = `<tr><td colspan="11">Загрузка...</td></tr>`;
+        workLogBody.innerHTML = `<tr><td colspan="12">Загрузка...</td></tr>`;
         try {
           const res = await fetch('https://n8n.kino-test.ru/webhook/get_signals', {
             method: 'POST',
@@ -483,11 +507,12 @@
 
           const json = await res.json();
           signalsState = normalizeResponse(json);
+          syncPairFilterOptions();
           currentPage = 1;
           renderSignalsTable();
         } catch (error) {
           console.error('loadSignals error:', error);
-          workLogBody.innerHTML = `<tr><td colspan="11">Ошибка загрузки сигналов</td></tr>`;
+          workLogBody.innerHTML = `<tr><td colspan="12">Ошибка загрузки сигналов</td></tr>`;
         }
       }
 
@@ -503,6 +528,12 @@
 
       signalFilter.addEventListener('change', () => {
         signalFilterValue = signalFilter.value;
+        currentPage = 1;
+        renderSignalsTable();
+      });
+
+      pairFilter.addEventListener('change', () => {
+        pairFilterValue = pairFilter.value;
         currentPage = 1;
         renderSignalsTable();
       });
