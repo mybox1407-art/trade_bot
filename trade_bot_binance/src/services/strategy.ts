@@ -5,8 +5,6 @@ const MAX_RISK_PER_TRADE = 0.01;
 const MIN_ADX_TREND = 20;
 const MIN_ADX_RANGE = 18;
 const BB_SQUEEZE_THRESHOLD = 0.05;
-const COMMISSION_RATE = 0.0004;
-const NET_TP_PCT = 0.045;
 
 export interface Candle {
   time: number;
@@ -43,34 +41,6 @@ function mean(values: number[]) {
 function getVolumeSpike(volumes: number[], avgVol20: number) {
   const v = volumes[volumes.length - 1] ?? 0;
   return v >= avgVol20 * 1.1;
-}
-
-function grossTargetFromNet(netPct: number) {
-  return netPct + (2 * COMMISSION_RATE);
-}
-
-function netPctForLong(entry: number, target: number) {
-  return (target / entry) - 1 - 2 * COMMISSION_RATE;
-}
-
-function netPctForShort(entry: number, target: number) {
-  return (entry / target) - 1 - 2 * COMMISSION_RATE;
-}
-
-function calcPercentTargets(price: number, side: 'long' | 'short', netTpPct = NET_TP_PCT, slPct = 0.02) {
-  const tpPct = grossTargetFromNet(netTpPct);
-  if (side === 'long') {
-    return {
-      takeProfitPrice: price * (1 + tpPct),
-      stopLossPrice: price * (1 - slPct),
-      targetNetPct: netPctForLong(price, price * (1 + tpPct))
-    };
-  }
-  return {
-    takeProfitPrice: price * (1 - tpPct),
-    stopLossPrice: price * (1 + slPct),
-    targetNetPct: netPctForShort(price, price * (1 - tpPct))
-  };
 }
 
 export function detectMarketRegime(candles: Candle[]) {
@@ -197,17 +167,15 @@ export function analyzeMarket(candles: Candle[]) {
   if (regime === 'trend_up' && macdCrossUp && rsiBull && price > regimeIndicators.ema200) {
     side = 'long';
     buy = true;
-    const t = calcPercentTargets(price, 'long', 0.045, 0.02);
-    stopLossPrice = t.stopLossPrice;
-    takeProfitPrice = t.takeProfitPrice;
+    stopLossPrice = price - lastAtr * 1.4;
+    takeProfitPrice = price + lastAtr * 2.8;
   }
 
   if (regime === 'trend_down' && macdCrossDown && rsiBear && price < regimeIndicators.ema200) {
     side = 'short';
     sell = true;
-    const t = calcPercentTargets(price, 'short', 0.045, 0.02);
-    stopLossPrice = t.stopLossPrice;
-    takeProfitPrice = t.takeProfitPrice;
+    stopLossPrice = price + lastAtr * 1.4;
+    takeProfitPrice = price - lastAtr * 2.8;
   }
 
   if (regime === 'range') {
@@ -216,15 +184,13 @@ export function analyzeMarket(candles: Candle[]) {
     if (longSetup) {
       side = 'long';
       buy = true;
-      const t = calcPercentTargets(price, 'long', 0.03, 0.012);
-      stopLossPrice = t.stopLossPrice;
-      takeProfitPrice = t.takeProfitPrice;
+      stopLossPrice = price - lastAtr * 1.2;
+      takeProfitPrice = lastBb.middle;
     } else if (shortSetup) {
       side = 'short';
       sell = true;
-      const t = calcPercentTargets(price, 'short', 0.03, 0.012);
-      stopLossPrice = t.stopLossPrice;
-      takeProfitPrice = t.takeProfitPrice;
+      stopLossPrice = price + lastAtr * 1.2;
+      takeProfitPrice = lastBb.middle;
     }
   }
 
@@ -234,15 +200,13 @@ export function analyzeMarket(candles: Candle[]) {
     if (breakoutUp) {
       side = 'long';
       buy = true;
-      const t = calcPercentTargets(price, 'long', 0.055, 0.022);
-      stopLossPrice = t.stopLossPrice;
-      takeProfitPrice = t.takeProfitPrice;
+      stopLossPrice = price - lastAtr * 1.3;
+      takeProfitPrice = price + lastAtr * 3.0;
     } else if (breakoutDown) {
       side = 'short';
       sell = true;
-      const t = calcPercentTargets(price, 'short', 0.055, 0.022);
-      stopLossPrice = t.stopLossPrice;
-      takeProfitPrice = t.takeProfitPrice;
+      stopLossPrice = price + lastAtr * 1.3;
+      takeProfitPrice = price - lastAtr * 3.0;
     }
   }
 
