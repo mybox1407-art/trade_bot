@@ -213,25 +213,42 @@
         <div class="card-header">
           <h2 id="trade-log-title" class="card-title">История торговли</h2>
         </div>
+        <div class="card-actions">
+          <button class="primary-btn equal-btn" id="refreshTradesBtn">Обновить</button>
+          <select id="tradePairFilter">
+            <option value="all">Пара = Все</option>
+          </select>
+          <select id="tradePeriodFilter">
+            <option value="all">Период = Все</option>
+            <option value="day">За день</option>
+            <option value="week">За неделю</option>
+            <option value="2weeks">За 2 недели</option>
+            <option value="month">За месяц</option>
+          </select>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>ID сделки</th>
-                <th>Открытие</th>
-                <th>Закрытие</th>
+                <th>Открыта</th>
+                <th>Закрыта</th>
                 <th>Пара</th>
-                <th>Side</th>
-                <th>Qty</th>
-                <th>Вход</th>
-                <th>Выход</th>
-                <th>Комиссия</th>
-                <th>Причина закрытия</th>
-                <th>Результат</th>
+                <th>Баланс до</th>
+                <th>Стороны</th>
+                <th>Режим</th>
+                <th>Цена</th>
+                <th>Позиция</th>
+                <th>Размер</th>
+                <th>Тайк</th>
+                <th>Стоп</th>
+                <th>Причина</th>
+                <th>Цена выхода</th>
+                <th>PNL</th>
+                <th>Баланс после</th>
               </tr>
             </thead>
             <tbody id="tradeLogBody">
-              <tr><td colspan="11">Загрузка...</td></tr>
+              <tr><td colspan="15">Загрузка...</td></tr>
             </tbody>
           </table>
         </div>
@@ -253,16 +270,22 @@
       const botsTableBody = document.getElementById('botsTableBody');
       const workLogBody = document.getElementById('workLogBody');
       const tradeLogBody = document.getElementById('tradeLogBody');
+      const refreshTradesBtn = document.getElementById('refreshTradesBtn');
+      const tradePairFilter = document.getElementById('tradePairFilter');
+      const tradePeriodFilter = document.getElementById('tradePeriodFilter');
 
       let theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
       let botsState = [];
       let signalsState = [];
+      let positionsState = [];
       let currentBotId = null;
       let currentPage = 1;
       const pageSize = 5;
       let signalFilterValue = 'all';
       let pairFilterValue = 'all';
       let periodFilterValue = 'all';
+      let tradePairFilterValue = 'all';
+      let tradePeriodFilterValue = 'all';
 
       root.setAttribute('data-theme', theme);
 
@@ -338,36 +361,57 @@
         return map[s] ?? regime ?? '-';
       }
 
-      function getAvailablePairs() {
-        const pairs = [...new Set(signalsState.map(s => String(s.symbol || s.couple || '').trim().toLowerCase()).filter(Boolean))].sort();
-        return pairs;
+      function getPairValue(item) {
+        return String(item.symbol || item.couple || '').trim().toLowerCase();
+      }
+
+      function getAvailablePairsFrom(items) {
+        return [...new Set(items.map(getPairValue).filter(Boolean))].sort();
       }
 
       function syncPairFilterOptions() {
-        const pairs = getAvailablePairs();
+        const pairs = getAvailablePairsFrom(signalsState);
         const current = pairFilterValue;
         pairFilter.innerHTML = '<option value="all">Пара = Все</option>' + pairs.map(p => `<option value="${p}">${p}</option>`).join('');
         pairFilterValue = pairs.includes(current) ? current : 'all';
         pairFilter.value = pairFilterValue;
       }
 
+      function syncTradePairFilterOptions() {
+        const pairs = getAvailablePairsFrom(positionsState);
+        const current = tradePairFilterValue;
+        tradePairFilter.innerHTML = '<option value="all">Пара = Все</option>' + pairs.map(p => `<option value="${p}">${p}</option>`).join('');
+        tradePairFilterValue = pairs.includes(current) ? current : 'all';
+        tradePairFilter.value = tradePairFilterValue;
+      }
+
       function getFilteredSignals() {
         const days = daysFromPeriod(periodFilterValue);
         const now = new Date();
-
         return signalsState.filter((s) => {
           const hasSignal = Boolean(s.buy) || Boolean(s.sell);
-          const pair = String(s.symbol || s.couple || '').trim().toLowerCase();
-
+          const pair = getPairValue(s);
           if (signalFilterValue !== 'all') {
             if (signalFilterValue === 'true' && !hasSignal) return false;
             if (signalFilterValue === 'false' && hasSignal) return false;
           }
-
           if (pairFilterValue !== 'all' && pair !== pairFilterValue) return false;
-
           if (!days) return true;
           const d = new Date(s.created_at);
+          if (Number.isNaN(d.getTime())) return false;
+          const diff = now - d;
+          return diff >= 0 && diff <= days * 24 * 60 * 60 * 1000;
+        });
+      }
+
+      function getFilteredTrades() {
+        const days = daysFromPeriod(tradePeriodFilterValue);
+        const now = new Date();
+        return positionsState.filter((p) => {
+          const pair = getPairValue(p);
+          if (tradePairFilterValue !== 'all' && pair !== tradePairFilterValue) return false;
+          if (!days) return true;
+          const d = new Date(p.opened_at || p.created_at);
           if (Number.isNaN(d.getTime())) return false;
           const diff = now - d;
           return diff >= 0 && diff <= days * 24 * 60 * 60 * 1000;
@@ -383,7 +427,6 @@
           botsTableBody.innerHTML = `<tr><td colspan="5">Боты не найдены</td></tr>`;
           return;
         }
-
         botsTableBody.innerHTML = botsState.map((bot) => {
           const active = String(bot.id_bot) === String(currentBotId);
           return `
@@ -401,26 +444,21 @@
       function renderSignalsTable() {
         const filtered = getFilteredSignals();
         const pageCount = getPageCount(filtered);
-
         if (currentPage > pageCount) currentPage = pageCount;
         if (currentPage < 1) currentPage = 1;
-
         const start = (currentPage - 1) * pageSize;
         const pageItems = filtered.slice(start, start + pageSize);
-
         pagerInfo.textContent = `Стр. ${currentPage} из ${pageCount} • ${filtered.length} записей`;
         prevPageBtn.disabled = currentPage <= 1;
         nextPageBtn.disabled = currentPage >= pageCount;
-
         if (!pageItems.length) {
           workLogBody.innerHTML = `<tr><td colspan="12">Сигналы не найдены</td></tr>`;
           return;
         }
-
         workLogBody.innerHTML = pageItems.map((signal) => {
           const hasSignal = Boolean(signal.buy) || Boolean(signal.sell);
           const rowClass = hasSignal ? 'row-signal-true' : 'row-signal-false';
-          const pair = (signal.symbol || signal.couple || '-').toString().toLowerCase();
+          const pair = getPairValue(signal) || '-';
           return `
             <tr class="${rowClass}">
               <td>${formatDate(signal.created_at)}</td>
@@ -440,17 +478,42 @@
         }).join('');
       }
 
-      function renderBotDetails(bot) {
-        if (!bot) {
-          tradeLogBody.innerHTML = `<tr><td colspan="11">Нет данных.</td></tr>`;
+      function renderTradesTable() {
+        const filtered = getFilteredTrades();
+        if (!filtered.length) {
+          tradeLogBody.innerHTML = `<tr><td colspan="15">Сделки не найдены</td></tr>`;
           return;
         }
+        tradeLogBody.innerHTML = filtered.map((p) => {
+          const closedAt = p.closed_at ? formatDate(p.closed_at) : '-';
+          return `
+            <tr>
+              <td>${formatDate(p.opened_at)}</td>
+              <td>${closedAt}</td>
+              <td>${p.symbol ?? '-'}</td>
+              <td>${p.balance_before != null ? formatNumber(p.balance_before, 8) : '-'}</td>
+              <td>${sideLabel(p.side)}</td>
+              <td>${p.regime_at_entry ?? '-'}</td>
+              <td>${p.entry_price != null ? formatNumber(p.entry_price, 8) : '-'}</td>
+              <td>${p.quantity != null ? formatNumber(p.quantity, 12) : '-'}</td>
+              <td>${p.notional != null ? formatNumber(p.notional, 8) : '-'}</td>
+              <td>${p.take_profit_price != null ? formatNumber(p.take_profit_price, 8) : '-'}</td>
+              <td>${p.stop_loss_price != null ? formatNumber(p.stop_loss_price, 8) : '-'}</td>
+              <td>${p.close_reason ?? '-'}</td>
+              <td>${p.exit_price != null ? formatNumber(p.exit_price, 8) : '-'}</td>
+              <td>${p.realized_pnl != null ? formatNumber(p.realized_pnl, 8) : '-'}</td>
+              <td>${p.balance_after != null ? formatNumber(p.balance_after, 8) : '-'}</td>
+            </tr>
+          `;
+        }).join('');
+      }
 
-        tradeLogBody.innerHTML = `
-          <tr>
-            <td colspan="11">История торговли для бота "${bot.name_bot ?? '-'}" пока не подключена.</td>
-          </tr>
-        `;
+      function renderBotDetails(bot) {
+        if (!bot) {
+          tradeLogBody.innerHTML = `<tr><td colspan="15">Нет данных.</td></tr>`;
+          return;
+        }
+        renderTradesTable();
       }
 
       function selectBot(botId) {
@@ -459,6 +522,7 @@
         renderBotsTable();
         renderBotDetails(botsState.find((b) => String(b.id_bot) === String(botId)));
         loadSignals(botId);
+        loadPositions(botId);
       }
 
       async function loadBots() {
@@ -468,17 +532,13 @@
             method: 'POST',
             headers: { 'Accept': 'application/json' }
           });
-
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
           const json = await res.json();
           botsState = normalizeResponse(json);
-
           if (!botsState.length) {
             botsTableBody.innerHTML = `<tr><td colspan="5">Боты не найдены</td></tr>`;
             return;
           }
-
           selectBot(botsState[0].id_bot);
         } catch (error) {
           console.error('loadBots error:', error);
@@ -491,7 +551,6 @@
           workLogBody.innerHTML = `<tr><td colspan="12">Бот не выбран</td></tr>`;
           return;
         }
-
         workLogBody.innerHTML = `<tr><td colspan="12">Загрузка...</td></tr>`;
         try {
           const res = await fetch('https://n8n.kino-test.ru/webhook/get_signals', {
@@ -502,9 +561,7 @@
             },
             body: JSON.stringify({ id_bot: Number(botId) })
           });
-
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
           const json = await res.json();
           signalsState = normalizeResponse(json);
           syncPairFilterOptions();
@@ -513,6 +570,32 @@
         } catch (error) {
           console.error('loadSignals error:', error);
           workLogBody.innerHTML = `<tr><td colspan="12">Ошибка загрузки сигналов</td></tr>`;
+        }
+      }
+
+      async function loadPositions(botId = currentBotId) {
+        if (!botId) {
+          tradeLogBody.innerHTML = `<tr><td colspan="15">Бот не выбран</td></tr>`;
+          return;
+        }
+        tradeLogBody.innerHTML = `<tr><td colspan="15">Загрузка...</td></tr>`;
+        try {
+          const res = await fetch('https://n8n.kino-test.ru/webhook/get_positions', {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ id_bot: Number(botId) })
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          positionsState = normalizeResponse(json);
+          syncTradePairFilterOptions();
+          renderTradesTable();
+        } catch (error) {
+          console.error('loadPositions error:', error);
+          tradeLogBody.innerHTML = `<tr><td colspan="15">Ошибка загрузки торговли</td></tr>`;
         }
       }
 
@@ -525,6 +608,7 @@
       });
 
       refreshSignalsBtn.addEventListener('click', () => loadSignals(currentBotId));
+      refreshTradesBtn.addEventListener('click', () => loadPositions(currentBotId));
 
       signalFilter.addEventListener('change', () => {
         signalFilterValue = signalFilter.value;
@@ -542,6 +626,16 @@
         periodFilterValue = periodFilter.value;
         currentPage = 1;
         renderSignalsTable();
+      });
+
+      tradePairFilter.addEventListener('change', () => {
+        tradePairFilterValue = tradePairFilter.value;
+        renderTradesTable();
+      });
+
+      tradePeriodFilter.addEventListener('change', () => {
+        tradePeriodFilterValue = tradePeriodFilter.value;
+        renderTradesTable();
       });
 
       prevPageBtn.addEventListener('click', () => {
