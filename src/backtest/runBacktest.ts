@@ -29,6 +29,24 @@ function colorize(text: string, color: keyof typeof ANSI): string {
   return `${ANSI[color]}${text}${ANSI.reset}`;
 }
 
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+function createReportWriter() {
+  const lines: string[] = [];
+
+  return {
+    log(line = ''): void {
+      console.log(line);
+      lines.push(stripAnsi(line));
+    },
+    text(): string {
+      return lines.join('\n');
+    }
+  };
+}
+
 function toNumber(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : NaN;
@@ -118,44 +136,67 @@ function estimateBacktestTime(candlesCount15m: number, candlesCount1m: number): 
   return { minSec: 60, maxSec: 300 };
 }
 
-function printSummary(result: RunResult): void {
+function safeFilePart(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, '_');
+}
+
+function makeReportBasePath(params: {
+  symbol: string;
+  sideFilter: string;
+  fromTs: number;
+  toTs: number;
+}): string {
+  const resultsDir = path.resolve(process.cwd(), 'src/backtest/results');
+  fs.mkdirSync(resultsDir, { recursive: true });
+
+  const from = formatDate(params.fromTs).slice(0, 10);
+  const to = formatDate(params.toTs).slice(0, 10);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+  const fileName =
+    `${safeFilePart(params.symbol)}_${from}_${to}_${safeFilePart(params.sideFilter)}_${stamp}`;
+
+  return path.join(resultsDir, fileName);
+}
+
+function printSummary(result: RunResult, out: { log: (line?: string) => void }): void {
   const s = result.summary;
   const netColor = s.netProfit > 0 ? 'green' : s.netProfit < 0 ? 'red' : 'yellow';
   const retColor = s.returnPct > 0 ? 'green' : s.returnPct < 0 ? 'red' : 'yellow';
   const pfColor = s.profitFactor >= 1.2 ? 'green' : s.profitFactor >= 1 ? 'yellow' : 'red';
 
-  console.log('\n========== ИТОГИ БЭКТЕСТА ==========');
-  console.log(`Инструмент: ${s.symbol}`);
-  console.log(`Side filter: ${result.options.sideFilter}`);
-  console.log(`Сделок: ${s.tradesCount}`);
-  console.log(`Побед: ${colorize(String(s.wins), 'green')}`);
-  console.log(`Поражений: ${colorize(String(s.losses), 'red')}`);
-  console.log(`Win rate: ${formatNumber(s.winRate * 100, 2)}%`);
-  console.log(`Gross profit: ${colorize(formatNumber(s.grossProfit, 2), 'green')}`);
-  console.log(`Gross loss: ${colorize(formatNumber(s.grossLoss, 2), 'red')}`);
-  console.log(`Net profit: ${colorize(formatNumber(s.netProfit, 2), netColor)}`);
-  console.log(`Avg net pnl: ${formatNumber(s.avgNetPnl, 2)}`);
-  console.log(`Avg win: ${formatNumber(s.avgWin, 2)}`);
-  console.log(`Avg loss: ${formatNumber(s.avgLoss, 2)}`);
-  console.log(
+  out.log('\n========== ИТОГИ БЭКТЕСТА ==========');
+  out.log(`Инструмент: ${s.symbol}`);
+  out.log(`Side filter: ${result.options.sideFilter}`);
+  out.log(`Сделок: ${s.tradesCount}`);
+  out.log(`Побед: ${colorize(String(s.wins), 'green')}`);
+  out.log(`Поражений: ${colorize(String(s.losses), 'red')}`);
+  out.log(`Win rate: ${formatNumber(s.winRate * 100, 2)}%`);
+  out.log(`Gross profit: ${colorize(formatNumber(s.grossProfit, 2), 'green')}`);
+  out.log(`Gross loss: ${colorize(formatNumber(s.grossLoss, 2), 'red')}`);
+  out.log(`Net profit: ${colorize(formatNumber(s.netProfit, 2), netColor)}`);
+  out.log(`Avg net pnl: ${formatNumber(s.avgNetPnl, 2)}`);
+  out.log(`Avg win: ${formatNumber(s.avgWin, 2)}`);
+  out.log(`Avg loss: ${formatNumber(s.avgLoss, 2)}`);
+  out.log(
     `Profit factor: ${colorize(
       Number.isFinite(s.profitFactor) ? formatNumber(s.profitFactor, 3) : 'Infinity',
       pfColor
     )}`
   );
-  console.log(`Стартовый баланс: ${formatNumber(s.startBalance, 2)}`);
-  console.log(`Финальный баланс: ${formatNumber(s.endBalance, 2)}`);
-  console.log(`Доходность: ${colorize(formatNumber(s.returnPct * 100, 2) + '%', retColor)}`);
-  console.log(`Макс. просадка: ${formatNumber(s.maxDrawdownAbs, 2)}`);
-  console.log(`Макс. просадка %: ${formatNumber(s.maxDrawdownPct * 100, 2)}%`);
+  out.log(`Стартовый баланс: ${formatNumber(s.startBalance, 2)}`);
+  out.log(`Финальный баланс: ${formatNumber(s.endBalance, 2)}`);
+  out.log(`Доходность: ${colorize(formatNumber(s.returnPct * 100, 2) + '%', retColor)}`);
+  out.log(`Макс. просадка: ${formatNumber(s.maxDrawdownAbs, 2)}`);
+  out.log(`Макс. просадка %: ${formatNumber(s.maxDrawdownPct * 100, 2)}%`);
 }
 
-function printRegimeStats(result: RunResult): void {
+function printRegimeStats(result: RunResult, out: { log: (line?: string) => void }): void {
   const rs = result.regimeStats;
 
   if (!rs || rs.totalBars === 0) {
-    console.log('\n========== REGIME STATS ==========');
-    console.log('Баров в обработке: 0');
+    out.log('\n========== REGIME STATS ==========');
+    out.log('Баров в обработке: 0');
     return;
   }
 
@@ -168,9 +209,9 @@ function printRegimeStats(result: RunResult): void {
     'unknown'
   ];
 
-  console.log('\n========== REGIME STATS ==========');
-  console.log(`Баров в обработке: ${rs.totalBars}`);
-  console.log(`Side filter: ${result.options.sideFilter}`);
+  out.log('\n========== REGIME STATS ==========');
+  out.log(`Баров в обработке: ${rs.totalBars}`);
+  out.log(`Side filter: ${result.options.sideFilter}`);
 
   const barParts: string[] = [];
   const regimesSeen = new Set([
@@ -187,8 +228,8 @@ function printRegimeStats(result: RunResult): void {
     barParts.push(`${reg} ${pct}% (${bars})`);
   }
 
-  console.log(`Bars: ${barParts.join(' | ')}`);
-  console.log('\nTrades by regime:');
+  out.log(`Bars: ${barParts.join(' | ')}`);
+  out.log('\nTrades by regime:');
 
   const tradeRegs = [
     ...order.filter(r => rs.tradesByRegime[r]),
@@ -196,7 +237,7 @@ function printRegimeStats(result: RunResult): void {
   ];
 
   if (!tradeRegs.length) {
-    console.log('нет');
+    out.log('нет');
   }
 
   for (const reg of tradeRegs) {
@@ -208,7 +249,7 @@ function printRegimeStats(result: RunResult): void {
       .map(([k, v]) => `${k}=${v}`)
       .join(', ');
 
-    console.log(
+    out.log(
       ` ${reg}: n=${t.trades} WR=${wr}% PF=${pf} net=${t.netProfit.toFixed(2)} avgBars=${t.avgBarsHeld} | ${reasons || '—'}`
     );
   }
@@ -218,14 +259,14 @@ function printRegimeStats(result: RunResult): void {
     .map(([k, v]) => `${k}=${v}`)
     .join(' | ');
 
-  console.log(`\nClose reasons: ${allReasons || 'нет'}`);
+  out.log(`\nClose reasons: ${allReasons || 'нет'}`);
 }
 
-function printTrades(result: RunResult): void {
-  console.log(`\n========== ВСЕ СДЕЛКИ (${result.trades.length}) ==========`);
+function printTrades(result: RunResult, out: { log: (line?: string) => void }): void {
+  out.log(`\n========== ВСЕ СДЕЛКИ (${result.trades.length}) ==========`);
 
   if (!result.trades.length) {
-    console.log('Сделок нет.');
+    out.log('Сделок нет.');
     return;
   }
 
@@ -250,29 +291,29 @@ function printTrades(result: RunResult): void {
       `Bars: ${trade.barsHeld}`
     ].join(' | ');
 
-    if (trade.netPnl > 0) console.log(colorize(line, 'green'));
-    else if (trade.netPnl < 0) console.log(colorize(line, 'red'));
-    else console.log(colorize(line, 'yellow'));
+    if (trade.netPnl > 0) out.log(colorize(line, 'green'));
+    else if (trade.netPnl < 0) out.log(colorize(line, 'red'));
+    else out.log(colorize(line, 'yellow'));
   }
 }
 
-function printOpenPosition(result: RunResult): void {
+function printOpenPosition(result: RunResult, out: { log: (line?: string) => void }): void {
   if (!result.openPosition) return;
 
   const p = result.openPosition;
 
-  console.log('\n========== ОТКРЫТАЯ ПОЗИЦИЯ ==========');
-  console.log(`Сторона: ${p.side}`);
-  console.log(`Режим: ${p.regime}`);
-  console.log(`Открыта: ${formatDate(p.openedAt)}`);
-  console.log(`Вход: ${formatNumber(p.entryPrice, 4)}`);
-  console.log(`Последняя цена: ${formatNumber(p.lastPrice, 4)}`);
-  console.log(`SL: ${formatNumber(p.stopLossPrice, 4)}`);
-  console.log(`TP: ${formatNumber(p.takeProfitPrice, 4)}`);
-  console.log(`Qty: ${formatNumber(p.quantity, 6)}`);
-  console.log(`Notional: ${formatNumber(p.notional, 2)}`);
-  console.log(`Unrealized gross: ${formatNumber(p.unrealizedGrossPnl, 2)}`);
-  console.log(`Unrealized net: ${formatNumber(p.unrealizedNetPnl, 2)}`);
+  out.log('\n========== ОТКРЫТАЯ ПОЗИЦИЯ ==========');
+  out.log(`Сторона: ${p.side}`);
+  out.log(`Режим: ${p.regime}`);
+  out.log(`Открыта: ${formatDate(p.openedAt)}`);
+  out.log(`Вход: ${formatNumber(p.entryPrice, 4)}`);
+  out.log(`Последняя цена: ${formatNumber(p.lastPrice, 4)}`);
+  out.log(`SL: ${formatNumber(p.stopLossPrice, 4)}`);
+  out.log(`TP: ${formatNumber(p.takeProfitPrice, 4)}`);
+  out.log(`Qty: ${formatNumber(p.quantity, 6)}`);
+  out.log(`Notional: ${formatNumber(p.notional, 2)}`);
+  out.log(`Unrealized gross: ${formatNumber(p.unrealizedGrossPnl, 2)}`);
+  out.log(`Unrealized net: ${formatNumber(p.unrealizedNetPnl, 2)}`);
 }
 
 function printUsage(): void {
@@ -330,28 +371,37 @@ function main(): void {
   const estimated = estimateBacktestTime(candles15m.length, candles1m.length);
   const tradeStartTime = parseTradeStartTime(TRADE_START_AT);
   const sideFilter = parseSideFilter(SIDE_FILTER_ENV);
+  const out = createReportWriter();
 
-  console.log('\n========== ПАРАМЕТРЫ ЗАПУСКА ==========');
-  console.log(`Файл 15m: ${path15m}`);
-  console.log(`Файл 1m: ${path1m}`);
-  console.log(`Инструмент: ${symbolArg}`);
-  console.log(`Свечей 15m: ${candles15m.length}`);
-  console.log(`Период 15m: ${formatDate(candles15m[0].time)} -> ${formatDate(candles15m[candles15m.length - 1].time)}`);
-  console.log(`Свечей 1m: ${candles1m.length}`);
-  console.log(`Период 1m: ${formatDate(candles1m[0].time)} -> ${formatDate(candles1m[candles1m.length - 1].time)}`);
-  console.log(`Стартовый баланс: ${STARTING_BALANCE}`);
-  console.log(`Position percent: ${formatNumber(POSITION_PERCENT * 100, 2)}%`);
-  console.log(`Комиссия: ${formatNumber(COMMISSION_RATE * 100, 4)}%`);
-  console.log(`Side filter: ${sideFilter}`);
-  console.log(`Оценка времени: ~ ${formatDuration(estimated.minSec)} - ${formatDuration(estimated.maxSec)}`);
-  console.log(`Лог прогресса: каждые ${PROGRESS_LOG_EVERY} свечей`);
-  console.log(`Signal timeframe: 15m`);
-  console.log(`Execution timeframe: 1m`);
-  console.log(`Conservative intrabar: ${CONSERVATIVE_INTRABAR ? 'ON' : 'OFF'}`);
-  console.log(`Warmup 15m: ${WARMUP_CANDLES_15M} бар`);
-  console.log(`Trade start: ${tradeStartTime ? formatDate(tradeStartTime) : 'не задан'}`);
-  console.log(`Close open position on end: ${CLOSE_OPEN_POSITION_ON_END ? 'ON' : 'OFF'}`);
-  console.log(`Прогресс: 0/${candles15m.length} свечей 15m`);
+  out.log('\n========== ПАРАМЕТРЫ ЗАПУСКА ==========');
+  out.log(`Файл 15m: ${path15m}`);
+  out.log(`Файл 1m: ${path1m}`);
+  out.log(`Инструмент: ${symbolArg}`);
+  out.log(`Свечей 15m: ${candles15m.length}`);
+  out.log(
+    `Период 15m: ${formatDate(candles15m[0].time)} -> ${formatDate(
+      candles15m[candles15m.length - 1].time
+    )}`
+  );
+  out.log(`Свечей 1m: ${candles1m.length}`);
+  out.log(
+    `Период 1m: ${formatDate(candles1m[0].time)} -> ${formatDate(
+      candles1m[candles1m.length - 1].time
+    )}`
+  );
+  out.log(`Стартовый баланс: ${STARTING_BALANCE}`);
+  out.log(`Position percent: ${formatNumber(POSITION_PERCENT * 100, 2)}%`);
+  out.log(`Комиссия: ${formatNumber(COMMISSION_RATE * 100, 4)}%`);
+  out.log(`Side filter: ${sideFilter}`);
+  out.log(`Оценка времени: ~ ${formatDuration(estimated.minSec)} - ${formatDuration(estimated.maxSec)}`);
+  out.log(`Лог прогресса: каждые ${PROGRESS_LOG_EVERY} свечей`);
+  out.log(`Signal timeframe: 15m`);
+  out.log(`Execution timeframe: 1m`);
+  out.log(`Conservative intrabar: ${CONSERVATIVE_INTRABAR ? 'ON' : 'OFF'}`);
+  out.log(`Warmup 15m: ${WARMUP_CANDLES_15M} бар`);
+  out.log(`Trade start: ${tradeStartTime ? formatDate(tradeStartTime) : 'не задан'}`);
+  out.log(`Close open position on end: ${CLOSE_OPEN_POSITION_ON_END ? 'ON' : 'OFF'}`);
+  out.log(`Прогресс: 0/${candles15m.length} свечей 15m`);
 
   const startedAt = Date.now();
 
@@ -366,13 +416,71 @@ function main(): void {
     closeOpenPositionOnEnd: CLOSE_OPEN_POSITION_ON_END
   });
 
-  console.log('\n========== ВРЕМЯ ВЫПОЛНЕНИЯ ==========');
-  console.log(`Фактическое время: ${formatDuration((Date.now() - startedAt) / 1000)}`);
+  const finishedAt = Date.now();
+  const durationSec = (finishedAt - startedAt) / 1000;
 
-  printSummary(result);
-  printRegimeStats(result);
-  printTrades(result);
-  printOpenPosition(result);
+  out.log('\n========== ВРЕМЯ ВЫПОЛНЕНИЯ ==========');
+  out.log(`Фактическое время: ${formatDuration(durationSec)}`);
+
+  printSummary(result, out);
+  printRegimeStats(result, out);
+  printTrades(result, out);
+  printOpenPosition(result, out);
+
+  const reportBasePath = makeReportBasePath({
+    symbol: symbolArg,
+    sideFilter,
+    fromTs: candles15m[0].time,
+    toTs: candles15m[candles15m.length - 1].time
+  });
+
+  const txtPath = `${reportBasePath}.txt`;
+  const jsonPath = `${reportBasePath}.json`;
+
+  fs.writeFileSync(txtPath, out.text(), 'utf-8');
+
+  const jsonReport = {
+    meta: {
+      savedAt: new Date().toISOString(),
+      startedAt: new Date(startedAt).toISOString(),
+      finishedAt: new Date(finishedAt).toISOString(),
+      durationSec,
+      symbol: symbolArg,
+      inputFiles: {
+        path15m,
+        path1m
+      },
+      candles: {
+        count15m: candles15m.length,
+        count1m: candles1m.length,
+        period15m: {
+          from: formatDate(candles15m[0].time),
+          to: formatDate(candles15m[candles15m.length - 1].time)
+        },
+        period1m: {
+          from: formatDate(candles1m[0].time),
+          to: formatDate(candles1m[candles1m.length - 1].time)
+        }
+      },
+      options: {
+        startingBalance: STARTING_BALANCE,
+        positionPercent: POSITION_PERCENT,
+        commissionRate: COMMISSION_RATE,
+        progressLogEvery: PROGRESS_LOG_EVERY,
+        warmupCandles15m: WARMUP_CANDLES_15M,
+        conservativeIntrabar: CONSERVATIVE_INTRABAR,
+        closeOpenPositionOnEnd: CLOSE_OPEN_POSITION_ON_END,
+        sideFilter,
+        tradeStartTime: tradeStartTime ? formatDate(tradeStartTime) : null
+      }
+    },
+    result
+  };
+
+  fs.writeFileSync(jsonPath, JSON.stringify(jsonReport, null, 2), 'utf-8');
+
+  console.log(`\nTXT отчёт сохранён: ${txtPath}`);
+  console.log(`JSON отчёт сохранён: ${jsonPath}`);
 }
 
 main();
