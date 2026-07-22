@@ -19,3 +19,6 @@ npx tsx src/backtest/runBacktest.ts \
 ./src/backtest/data/SOLUSDT_15m.json \
 ./src/backtest/data/SOLUSDT_1m.json \
 SOLUSDT
+
+tmux new -s backtest
+tmux attach -t backtest
