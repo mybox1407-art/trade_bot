@@ -363,7 +363,6 @@ function main(): void {
     progressLogEvery: PROGRESS_LOG_EVERY,
     sideFilter,
     tradeStartTime,
-    conservativeIntrabarExecution: CONSERVATIVE_INTRABAR,
     closeOpenPositionOnEnd: CLOSE_OPEN_POSITION_ON_END
   });
 
