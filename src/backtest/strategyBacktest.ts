@@ -15,7 +15,6 @@ export interface BacktestOptions {
   progressLogEvery?: number;
   sideFilter?: SideFilter;
   tradeStartTime?: number;
-  conservativeIntrabarExecution?: boolean;
   closeOpenPositionOnEnd?: boolean;
 }
 
@@ -413,70 +412,52 @@ function buildTrade(params: {
   };
 }
 
-function processExitOn1mCandle(params: {
+function processExitOnObservedPrice(params: {
   position: OpenPosition;
-  candle: Candle;
+  currentPrice: number;
+  observedAt: number;
   balance: number;
   commissionRate: number;
   barsHeld: number;
-  conservative: boolean;
 }): {
   trade: BacktestTrade | null;
   balance: number;
   stillOpen: boolean;
 } {
-  const { position, candle, commissionRate, barsHeld, conservative } = params;
+  const { position, currentPrice, observedAt, commissionRate, barsHeld } = params;
   let { balance } = params;
 
-  const hitStop =
+  const hitTakeProfit =
     position.side === 'long'
-      ? candle.low <= position.stopLossPrice
-      : candle.high >= position.stopLossPrice;
+      ? currentPrice >= position.takeProfitPrice
+      : currentPrice <= position.takeProfitPrice;
 
-  const hitTp =
+  const hitStopLoss =
     position.side === 'long'
-      ? candle.high >= position.takeProfitPrice
-      : candle.low <= position.takeProfitPrice;
+      ? currentPrice <= position.stopLossPrice
+      : currentPrice >= position.stopLossPrice;
 
-  if (hitStop && hitTp) {
-    const exitPrice = conservative ? position.stopLossPrice : position.takeProfitPrice;
-    const closeReason = conservative ? 'stop_loss' : 'take_profit';
-
+  if (hitTakeProfit) {
     const trade = buildTrade({
       position,
-      exitPrice,
-      closedAt: candle.time,
-      closeReason,
-      balanceBeforeClose: balance,
-      commissionRate,
-      barsHeld
-    });
-
-    balance = trade.balanceAfter;
-    return { trade, balance, stillOpen: false };
-  }
-
-  if (hitStop) {
-    const trade = buildTrade({
-      position,
-      exitPrice: position.stopLossPrice,
-      closedAt: candle.time,
-      closeReason: 'stop_loss',
-      balanceBeforeClose: balance,
-      commissionRate,
-      barsHeld
-    });
-
-    balance = trade.balanceAfter;
-    return { trade, balance, stillOpen: false };
-  }
-
-  if (hitTp) {
-    const trade = buildTrade({
-      position,
-      exitPrice: position.takeProfitPrice,
-      closedAt: candle.time,
+      exitPrice: currentPrice,
+      closedAt: observedAt,
       closeReason: 'take_profit',
+      balanceBeforeClose: balance,
+      commissionRate,
+      barsHeld
+    });
+
+    balance = trade.balanceAfter;
+    return { trade, balance, stillOpen: false };
+  }
+
+  if (hitStopLoss) {
+    const trade = buildTrade({
+      position,
+      exitPrice: currentPrice,
+      closedAt: observedAt,
+      closeReason: 'stop_loss',
       balanceBeforeClose: balance,
       commissionRate,
       barsHeld
@@ -599,7 +580,6 @@ export function runStrategyBacktest(
     progressLogEvery: options.progressLogEvery ?? 250,
     sideFilter: options.sideFilter ?? 'both',
     tradeStartTime: options.tradeStartTime ?? 0,
-    conservativeIntrabarExecution: options.conservativeIntrabarExecution ?? true,
     closeOpenPositionOnEnd: options.closeOpenPositionOnEnd ?? false
   };
 
@@ -718,18 +698,19 @@ export function runStrategyBacktest(
     while (scanIndex < sorted1m.length && sorted1m[scanIndex].time < next15mTime) {
       if (openPosition) {
         const minuteCandle = sorted1m[scanIndex];
+        const observedPrice = minuteCandle.close;
         const barsHeld = Math.max(
           0,
           Math.floor((minuteCandle.time - openPosition.openedAt) / tf15mMs)
         );
 
-        const result = processExitOn1mCandle({
+        const result = processExitOnObservedPrice({
           position: openPosition,
-          candle: minuteCandle,
+          currentPrice: observedPrice,
+          observedAt: minuteCandle.time,
           balance,
           commissionRate: resolvedOptions.commissionRate,
-          barsHeld,
-          conservative: resolvedOptions.conservativeIntrabarExecution
+          barsHeld
         });
 
         balance = result.balance;
