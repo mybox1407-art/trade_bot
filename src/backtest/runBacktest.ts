@@ -4,15 +4,13 @@ import { runStrategyBacktest, SideFilter } from './strategyBacktest';
 import { Candle } from '../services/strategy';
 
 const STARTING_BALANCE = 500;
+const POSITION_PERCENT = 0.10;
 const DEFAULT_COOLDOWN_CANDLES = 0;
 const PROGRESS_LOG_EVERY = 250;
-const COMMISSION_RATE = 0.0005;
+const COMMISSION_RATE = 0;
 const MAX_TRADES_PER_DAY = 0;
 const ONE_POSITION_AT_TIME = true;
 const CONSERVATIVE_INTRABAR = true;
-const TIME_STOP_BARS = 0;
-const EARLY_ABORT_BARS = 0;
-const EARLY_ABORT_MIN_R = 0.35;
 const DEFAULT_WARMUP = 0;
 const CLOSE_OPEN_POSITION_ON_END = false;
 
@@ -270,8 +268,9 @@ function printTrades(result: RunResult, limit?: number): void {
       `SL: ${formatNumber(trade.stopLossPrice, 4)}`,
       `TP: ${formatNumber(trade.takeProfitPrice, 4)}`,
       `Qty: ${formatNumber(trade.quantity, 6)}`,
-      `Notional: ${formatNumber(trade.positionSize, 2)}`,
+      `Notional: ${formatNumber(trade.notional, 2)}`,
       `Причина: ${trade.closeReason}`,
+      `Realized PnL: ${formatNumber(trade.realizedPnL, 2)}`,
       `Net PnL: ${formatNumber(trade.netPnl, 2)}`,
       `Комиссия: ${formatNumber(trade.totalCommission, 4)}`,
       `Bars: ${trade.barsHeld}`
@@ -296,10 +295,9 @@ function printOpenPosition(result: RunResult): void {
   console.log(`SL: ${formatNumber(p.stopLossPrice, 4)}`);
   console.log(`TP: ${formatNumber(p.takeProfitPrice, 4)}`);
   console.log(`Qty: ${formatNumber(p.quantity, 6)}`);
-  console.log(`Notional: ${formatNumber(p.positionSize, 2)}`);
+  console.log(`Notional: ${formatNumber(p.notional, 2)}`);
   console.log(`Unrealized gross: ${formatNumber(p.unrealizedGrossPnl, 2)}`);
   console.log(`Unrealized net: ${formatNumber(p.unrealizedNetPnl, 2)}`);
-  console.log(`Bars: ${p.barsHeld}`);
 }
 
 function printUsage(): void {
@@ -383,8 +381,9 @@ function main(): void {
     )}`
   );
   console.log(`Стартовый баланс: ${STARTING_BALANCE}`);
+  console.log(`Position percent: ${(POSITION_PERCENT * 100).toFixed(2)}%`);
   console.log(`Комиссия: ${COMMISSION_RATE * 100}%`);
-  console.log(`Cooldown после сделки: ${cooldownCandles} свеч. (live parity default)`);
+  console.log(`Cooldown после сделки: ${cooldownCandles} свеч.`);
   console.log(`Side filter: ${sideFilter}`);
   console.log(
     `Оценка времени: ~ ${formatDuration(estimated.minSec)} - ${formatDuration(
@@ -394,12 +393,6 @@ function main(): void {
   console.log(`Лог прогресса: каждые ${PROGRESS_LOG_EVERY} свечей`);
   console.log(`One position at time: ${ONE_POSITION_AT_TIME ? 'ON' : 'OFF'}`);
   console.log(`Conservative intrabar: ${CONSERVATIVE_INTRABAR ? 'ON' : 'OFF'}`);
-  console.log(`Time-stop: ${TIME_STOP_BARS > 0 ? `${TIME_STOP_BARS} бар` : 'OFF'}`);
-  console.log(
-    `Early-abort: ${
-      EARLY_ABORT_BARS > 0 ? `${EARLY_ABORT_BARS} бар @ ${EARLY_ABORT_MIN_R}R` : 'OFF'
-    }`
-  );
   console.log(`Лимит входов в день: ${MAX_TRADES_PER_DAY > 0 ? MAX_TRADES_PER_DAY : 'выкл.'}`);
   console.log(`Warmup: ${warmup} бар`);
   console.log(
@@ -425,6 +418,7 @@ function main(): void {
 
     result = runStrategyBacktest(symbolArg, candles, {
       startingBalance: STARTING_BALANCE,
+      positionPercent: POSITION_PERCENT,
       commissionRate: COMMISSION_RATE,
       warmupCandles: warmup,
       onePositionAtTime: ONE_POSITION_AT_TIME,
@@ -432,9 +426,6 @@ function main(): void {
       cooldownCandles,
       progressLogEvery: PROGRESS_LOG_EVERY,
       maxTradesPerDay: MAX_TRADES_PER_DAY,
-      timeStopBars: TIME_STOP_BARS,
-      earlyAbortBars: EARLY_ABORT_BARS,
-      earlyAbortMinR: EARLY_ABORT_MIN_R,
       sideFilter,
       tradeStartTime: Number.isFinite(tradeStartAt) ? tradeStartAt : 0,
       closeOpenPositionOnEnd: CLOSE_OPEN_POSITION_ON_END
