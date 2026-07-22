@@ -5,3 +5,5 @@ cd trade_bot_crypto_impulse
 docker compose up -d --build
 docker network connect n8n-docker_default trade_bot_crypto_impulse
 npm install
+
+npx tsx src/backtest/download-binance-candles.ts SOLUSDT 30 15m
