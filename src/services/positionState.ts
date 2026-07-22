@@ -1,3 +1,5 @@
+import { MAX_RISK_PER_TRADE } from './strategy';
+
 export interface VirtualPosition {
   symbol: string;
   side: 'long' | 'short';
@@ -28,6 +30,33 @@ let balance = STARTING_BALANCE;
 let currentPosition: VirtualPosition | null = null;
 let lastClosedTrade: ClosedTrade | null = null;
 
+function isFinitePositive(value: number) {
+  return Number.isFinite(value) && value > 0;
+}
+
+function isValidLevels(params: {
+  side: 'long' | 'short';
+  entryPrice: number;
+  takeProfitPrice: number;
+  stopLossPrice: number;
+}) {
+  const { side, entryPrice, takeProfitPrice, stopLossPrice } = params;
+
+  if (
+    !isFinitePositive(entryPrice) ||
+    !Number.isFinite(takeProfitPrice) ||
+    !Number.isFinite(stopLossPrice)
+  ) {
+    return false;
+  }
+
+  if (side === 'long') {
+    return stopLossPrice < entryPrice && takeProfitPrice > entryPrice;
+  }
+
+  return stopLossPrice > entryPrice && takeProfitPrice < entryPrice;
+}
+
 export function getBalance() {
   return balance;
 }
@@ -44,6 +73,10 @@ export function getPositionNotional() {
   return balance * POSITION_PERCENT;
 }
 
+export function getRiskCapital() {
+  return balance * MAX_RISK_PER_TRADE;
+}
+
 export function openPosition(data: {
   symbol: string;
   side: 'long' | 'short';
@@ -55,8 +88,27 @@ export function openPosition(data: {
     return { ok: false, message: 'Position already open', position: currentPosition };
   }
 
-  const notional = getPositionNotional();
-  const quantity = notional / data.entryPrice;
+  if (!isValidLevels(data)) {
+    return { ok: false, message: 'Invalid entry / stop / take-profit levels' };
+  }
+
+  const stopDistance = Math.abs(data.entryPrice - data.stopLossPrice);
+  if (!isFinitePositive(stopDistance)) {
+    return { ok: false, message: 'Invalid stop distance' };
+  }
+
+  const maxNotionalByPercent = getPositionNotional();
+  const maxQuantityByPercent = maxNotionalByPercent / data.entryPrice;
+
+  const riskCapital = getRiskCapital();
+  const riskQuantity = riskCapital / stopDistance;
+
+  const quantity = Math.min(riskQuantity, maxQuantityByPercent);
+  const notional = quantity * data.entryPrice;
+
+  if (!isFinitePositive(quantity) || !isFinitePositive(notional)) {
+    return { ok: false, message: 'Calculated position size is invalid' };
+  }
 
   currentPosition = {
     symbol: data.symbol,
