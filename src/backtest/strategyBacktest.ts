@@ -20,6 +20,8 @@ export interface BacktestOptions {
   earlyAbortBars?: number;
   earlyAbortMinR?: number;
   sideFilter?: SideFilter;
+  tradeStartTime?: number;
+  closeOpenPositionOnEnd?: boolean;
 }
 
 interface OpenPosition {
@@ -36,6 +38,21 @@ interface OpenPosition {
   initialR: number;
 }
 
+export interface OpenPositionSnapshot {
+  side: 'long' | 'short';
+  regime: MarketRegime | string;
+  openedAt: number;
+  entryPrice: number;
+  stopLossPrice: number;
+  takeProfitPrice: number;
+  quantity: number;
+  positionSize: number;
+  lastPrice: number;
+  unrealizedGrossPnl: number;
+  unrealizedNetPnl: number;
+  barsHeld: number;
+}
+
 export interface BacktestTrade {
   symbol: string;
   side: 'long' | 'short';
@@ -48,12 +65,7 @@ export interface BacktestTrade {
   takeProfitPrice: number;
   quantity: number;
   positionSize: number;
-  closeReason:
-    | 'stop_loss'
-    | 'take_profit'
-    | 'forced_close'
-    | 'time_stop'
-    | 'early_abort';
+  closeReason: 'stop_loss' | 'take_profit' | 'forced_close' | 'time_stop' | 'early_abort';
   grossPnl: number;
   commissionOpen: number;
   commissionClose: number;
@@ -116,6 +128,7 @@ export interface BacktestResult {
   summary: BacktestSummary;
   equityCurve: Array<{ time: number; balance: number }>;
   regimeStats: RegimeStats;
+  openPosition: OpenPositionSnapshot | null;
 }
 
 function toNumber(value: unknown, fallback = 0): number {
@@ -235,21 +248,65 @@ function buildRegimeStats(
         : bucket.grossProfit > 0
           ? Infinity
           : 0;
-    bucket.avgBarsHeld = bucket.trades > 0 ? round(bucket.avgBarsHeld / bucket.trades, 2) : 0;
+    bucket.avgBarsHeld =
+      bucket.trades > 0 ? round(bucket.avgBarsHeld / bucket.trades, 2) : 0;
   }
 
   return { totalBars, barsByRegime, tradesByRegime, closeReasonsAll };
 }
 
+function snapshotOpenPosition(params: {
+  position: OpenPosition;
+  lastPrice: number;
+  commissionRate: number;
+  barsHeld: number;
+}): OpenPositionSnapshot {
+  const { position, lastPrice, commissionRate, barsHeld } = params;
+
+  const unrealizedGrossPnl = getGrossPnl({
+    side: position.side,
+    entryPrice: position.entryPrice,
+    exitPrice: lastPrice,
+    quantity: position.quantity
+  });
+
+  const estimatedOpenCommission = getCommission(
+    position.entryPrice * position.quantity,
+    commissionRate
+  );
+
+  const estimatedCloseCommission = getCommission(
+    lastPrice * position.quantity,
+    commissionRate
+  );
+
+  const unrealizedNetPnl =
+    unrealizedGrossPnl - estimatedOpenCommission - estimatedCloseCommission;
+
+  return {
+    side: position.side,
+    regime: position.regime,
+    openedAt: position.openedAt,
+    entryPrice: round(position.entryPrice),
+    stopLossPrice: round(position.stopLossPrice),
+    takeProfitPrice: round(position.takeProfitPrice),
+    quantity: round(position.quantity, 12),
+    positionSize: round(position.entryPrice * position.quantity, 8),
+    lastPrice: round(lastPrice),
+    unrealizedGrossPnl: round(unrealizedGrossPnl),
+    unrealizedNetPnl: round(unrealizedNetPnl),
+    barsHeld
+  };
+}
+
 function tryOpenPosition(params: {
-  symbol: string;
   visibleCandles: Candle[];
   currentBalance: number;
   commissionRate: number;
   sideFilter: SideFilter;
 }): OpenPosition | null {
   const { visibleCandles, currentBalance, commissionRate, sideFilter } = params;
-  const signal = analyzeMarket(visibleCandles);
+  const signal = analyzeMarket(visibleCandles, currentBalance);
 
   if (signal.side === 'none') return null;
   if (sideFilter === 'long' && signal.side !== 'long') return null;
@@ -276,16 +333,14 @@ function tryOpenPosition(params: {
   const initialR = Math.abs(entryPrice - stopLossPrice);
   if (initialR <= 0) return null;
 
-  const requestedNotional = Math.max(0, toNumber(signal.positionSize));
-  const maxAffordableNotional = currentBalance > 0
-    ? currentBalance / (1 + commissionRate)
-    : 0;
+  const requestedQuantity = Math.max(0, toNumber(signal.positionSize));
+  const maxAffordableQuantity =
+    currentBalance > 0 ? currentBalance / (entryPrice * (1 + commissionRate)) : 0;
 
-  const actualNotional = Math.min(requestedNotional, maxAffordableNotional);
-  if (actualNotional <= 0) return null;
-
-  const quantity = actualNotional / entryPrice;
+  const quantity = Math.min(requestedQuantity, maxAffordableQuantity);
   if (!Number.isFinite(quantity) || quantity <= 0) return null;
+
+  const actualNotional = quantity * entryPrice;
 
   return {
     side: signal.side,
@@ -323,15 +378,20 @@ function buildTrade(params: {
     barsHeld
   } = params;
 
-  const commissionOpen = getCommission(position.entryPrice * position.quantity, commissionRate);
+  const commissionOpen = getCommission(
+    position.entryPrice * position.quantity,
+    commissionRate
+  );
   const commissionClose = getCommission(exitPrice * position.quantity, commissionRate);
   const totalCommission = commissionOpen + commissionClose;
+
   const grossPnl = getGrossPnl({
     side: position.side,
     entryPrice: position.entryPrice,
     exitPrice,
     quantity: position.quantity
   });
+
   const netPnl = grossPnl - totalCommission;
 
   return {
@@ -506,16 +566,18 @@ export function runStrategyBacktest(
   const resolvedOptions: Required<BacktestOptions> = {
     startingBalance: options.startingBalance ?? 500,
     commissionRate: options.commissionRate ?? 0.0005,
-    warmupCandles: options.warmupCandles ?? 250,
+    warmupCandles: options.warmupCandles ?? 0,
     onePositionAtTime: options.onePositionAtTime ?? true,
     conservativeIntrabarExecution: options.conservativeIntrabarExecution ?? true,
-    cooldownCandles: options.cooldownCandles ?? 12,
+    cooldownCandles: options.cooldownCandles ?? 0,
     progressLogEvery: options.progressLogEvery ?? 250,
     maxTradesPerDay: options.maxTradesPerDay ?? 0,
-    timeStopBars: options.timeStopBars ?? 64,
-    earlyAbortBars: options.earlyAbortBars ?? 16,
+    timeStopBars: options.timeStopBars ?? 0,
+    earlyAbortBars: options.earlyAbortBars ?? 0,
     earlyAbortMinR: options.earlyAbortMinR ?? 0.35,
-    sideFilter: options.sideFilter ?? 'both'
+    sideFilter: options.sideFilter ?? 'both',
+    tradeStartTime: options.tradeStartTime ?? 0,
+    closeOpenPositionOnEnd: options.closeOpenPositionOnEnd ?? false
   };
 
   if (!Array.isArray(candles) || candles.length === 0) {
@@ -531,7 +593,8 @@ export function runStrategyBacktest(
         equityCurve: []
       }),
       equityCurve: [],
-      regimeStats: emptyRegimeStats()
+      regimeStats: emptyRegimeStats(),
+      openPosition: null
     };
   }
 
@@ -550,9 +613,13 @@ export function runStrategyBacktest(
   const barCounts: Record<string, number> = {};
 
   const startedAt = Date.now();
-  const totalBarsToProcess = Math.max(sortedCandles.length - resolvedOptions.warmupCandles, 0);
+  const startIndex = Math.max(
+    0,
+    Math.min(resolvedOptions.warmupCandles, sortedCandles.length)
+  );
+  const totalBarsToProcess = Math.max(sortedCandles.length - startIndex, 0);
 
-  for (let i = resolvedOptions.warmupCandles; i < sortedCandles.length; i++) {
+  for (let i = startIndex; i < sortedCandles.length; i++) {
     const visibleCandles = sortedCandles.slice(0, i + 1);
     const currentCandle = sortedCandles[i];
 
@@ -561,7 +628,7 @@ export function runStrategyBacktest(
     barCounts[regName] = (barCounts[regName] ?? 0) + 1;
 
     if (resolvedOptions.progressLogEvery > 0) {
-      const processedBars = i - resolvedOptions.warmupCandles;
+      const processedBars = i - startIndex;
       const shouldLog =
         processedBars > 0 &&
         (processedBars % resolvedOptions.progressLogEvery === 0 ||
@@ -584,7 +651,11 @@ export function runStrategyBacktest(
             `ETA: ${formatDuration(etaSec)}`,
             `Сделок: ${trades.length}`,
             `Баланс: ${round(balance, 2)}`,
-            `Открыта: ${openPosition ? `${openPosition.side}@${round(openPosition.entryPrice, 4)}` : 'нет'}`
+            `Открыта: ${
+              openPosition
+                ? `${openPosition.side}@${round(openPosition.entryPrice, 4)}`
+                : 'нет'
+            }`
           ].join(' | ')
         );
       }
@@ -593,7 +664,32 @@ export function runStrategyBacktest(
     if (openPosition) {
       const barsHeld = i - openPositionIndex;
 
-      if (barsHeld >= resolvedOptions.timeStopBars) {
+      const exitResult = processExitsOnCandle({
+        symbol,
+        position: openPosition,
+        candle: currentCandle,
+        balance,
+        commissionRate: resolvedOptions.commissionRate,
+        barsHeld,
+        conservative: resolvedOptions.conservativeIntrabarExecution
+      });
+
+      balance = exitResult.balance;
+
+      if (exitResult.trade) {
+        trades.push(exitResult.trade);
+        equityCurve.push({ time: currentCandle.time, balance: round(balance) });
+        cooldownRemaining = resolvedOptions.cooldownCandles;
+        openPosition = null;
+        openPositionIndex = -1;
+        continue;
+      }
+
+      if (
+        openPosition &&
+        resolvedOptions.timeStopBars > 0 &&
+        barsHeld >= resolvedOptions.timeStopBars
+      ) {
         const trade = buildTrade({
           symbol,
           position: openPosition,
@@ -611,7 +707,11 @@ export function runStrategyBacktest(
         cooldownRemaining = resolvedOptions.cooldownCandles;
         openPosition = null;
         openPositionIndex = -1;
-      } else if (
+        continue;
+      }
+
+      if (
+        openPosition &&
         resolvedOptions.earlyAbortBars > 0 &&
         barsHeld >= resolvedOptions.earlyAbortBars
       ) {
@@ -638,32 +738,8 @@ export function runStrategyBacktest(
           cooldownRemaining = resolvedOptions.cooldownCandles;
           openPosition = null;
           openPositionIndex = -1;
+          continue;
         }
-      }
-    }
-
-    if (openPosition) {
-      const result = processExitsOnCandle({
-        symbol,
-        position: openPosition,
-        candle: currentCandle,
-        balance,
-        commissionRate: resolvedOptions.commissionRate,
-        barsHeld: i - openPositionIndex,
-        conservative: resolvedOptions.conservativeIntrabarExecution
-      });
-
-      balance = result.balance;
-
-      if (result.trade) {
-        trades.push(result.trade);
-        equityCurve.push({ time: currentCandle.time, balance: round(balance) });
-      }
-
-      if (!result.stillOpen) {
-        cooldownRemaining = resolvedOptions.cooldownCandles;
-        openPosition = null;
-        openPositionIndex = -1;
       }
     }
 
@@ -674,6 +750,8 @@ export function runStrategyBacktest(
       continue;
     }
 
+    if (currentCandle.time < resolvedOptions.tradeStartTime) continue;
+
     if (resolvedOptions.maxTradesPerDay > 0) {
       const dayKey = utcDateKey(currentCandle.time);
       const used = entriesPerDay.get(dayKey) ?? 0;
@@ -681,7 +759,6 @@ export function runStrategyBacktest(
     }
 
     const maybeOpen = tryOpenPosition({
-      symbol,
       visibleCandles,
       currentBalance: balance,
       commissionRate: resolvedOptions.commissionRate,
@@ -699,22 +776,34 @@ export function runStrategyBacktest(
     }
   }
 
+  let openPositionSnapshot: OpenPositionSnapshot | null = null;
+
   if (openPosition) {
     const lastCandle = sortedCandles[sortedCandles.length - 1];
-    const trade = buildTrade({
-      symbol,
-      position: openPosition,
-      exitPrice: lastCandle.close,
-      closedAt: lastCandle.time,
-      closeReason: 'forced_close',
-      balanceBeforeClose: balance,
-      commissionRate: resolvedOptions.commissionRate,
-      barsHeld: sortedCandles.length - 1 - openPositionIndex
-    });
 
-    balance = trade.balanceAfter;
-    trades.push(trade);
-    equityCurve.push({ time: lastCandle.time, balance: round(balance) });
+    if (resolvedOptions.closeOpenPositionOnEnd) {
+      const trade = buildTrade({
+        symbol,
+        position: openPosition,
+        exitPrice: lastCandle.close,
+        closedAt: lastCandle.time,
+        closeReason: 'forced_close',
+        balanceBeforeClose: balance,
+        commissionRate: resolvedOptions.commissionRate,
+        barsHeld: sortedCandles.length - 1 - openPositionIndex
+      });
+
+      balance = trade.balanceAfter;
+      trades.push(trade);
+      equityCurve.push({ time: lastCandle.time, balance: round(balance) });
+    } else {
+      openPositionSnapshot = snapshotOpenPosition({
+        position: openPosition,
+        lastPrice: lastCandle.close,
+        commissionRate: resolvedOptions.commissionRate,
+        barsHeld: sortedCandles.length - 1 - openPositionIndex
+      });
+    }
   }
 
   const regimeStats = buildRegimeStats(trades, barCounts);
@@ -731,6 +820,7 @@ export function runStrategyBacktest(
       equityCurve
     }),
     equityCurve,
-    regimeStats
+    regimeStats,
+    openPosition: openPositionSnapshot
   };
 }
