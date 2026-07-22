@@ -9,6 +9,7 @@ export type SideFilter = 'both' | 'long' | 'short';
 
 export interface BacktestOptions {
   startingBalance?: number;
+  positionPercent?: number;
   commissionRate?: number;
   warmupCandles?: number;
   onePositionAtTime?: boolean;
@@ -16,41 +17,37 @@ export interface BacktestOptions {
   cooldownCandles?: number;
   progressLogEvery?: number;
   maxTradesPerDay?: number;
-  timeStopBars?: number;
-  earlyAbortBars?: number;
-  earlyAbortMinR?: number;
   sideFilter?: SideFilter;
   tradeStartTime?: number;
   closeOpenPositionOnEnd?: boolean;
 }
 
 interface OpenPosition {
+  symbol: string;
   side: 'long' | 'short';
   regime: MarketRegime | string;
   openedAt: number;
   entryPrice: number;
-  stopLossPrice: number;
-  initialStopLossPrice: number;
-  takeProfitPrice: number;
   quantity: number;
-  positionSize: number;
+  notional: number;
+  takeProfitPrice: number;
+  stopLossPrice: number;
   balanceBefore: number;
-  initialR: number;
 }
 
 export interface OpenPositionSnapshot {
+  symbol: string;
   side: 'long' | 'short';
   regime: MarketRegime | string;
   openedAt: number;
   entryPrice: number;
-  stopLossPrice: number;
-  takeProfitPrice: number;
   quantity: number;
-  positionSize: number;
+  notional: number;
+  takeProfitPrice: number;
+  stopLossPrice: number;
   lastPrice: number;
   unrealizedGrossPnl: number;
   unrealizedNetPnl: number;
-  barsHeld: number;
 }
 
 export interface BacktestTrade {
@@ -61,11 +58,11 @@ export interface BacktestTrade {
   closedAt: number;
   entryPrice: number;
   exitPrice: number;
-  stopLossPrice: number;
-  takeProfitPrice: number;
   quantity: number;
-  positionSize: number;
-  closeReason: 'stop_loss' | 'take_profit' | 'forced_close' | 'time_stop' | 'early_abort';
+  notional: number;
+  takeProfitPrice: number;
+  stopLossPrice: number;
+  realizedPnL: number;
   grossPnl: number;
   commissionOpen: number;
   commissionClose: number;
@@ -74,6 +71,7 @@ export interface BacktestTrade {
   balanceBefore: number;
   balanceAfter: number;
   barsHeld: number;
+  closeReason: 'take_profit' | 'stop_loss' | 'manual' | 'forced_close';
 }
 
 export interface BacktestSummary {
@@ -259,9 +257,8 @@ function snapshotOpenPosition(params: {
   position: OpenPosition;
   lastPrice: number;
   commissionRate: number;
-  barsHeld: number;
 }): OpenPositionSnapshot {
-  const { position, lastPrice, commissionRate, barsHeld } = params;
+  const { position, lastPrice, commissionRate } = params;
 
   const unrealizedGrossPnl = getGrossPnl({
     side: position.side,
@@ -270,53 +267,44 @@ function snapshotOpenPosition(params: {
     quantity: position.quantity
   });
 
-  const estimatedOpenCommission = getCommission(
-    position.entryPrice * position.quantity,
-    commissionRate
-  );
-
-  const estimatedCloseCommission = getCommission(
-    lastPrice * position.quantity,
-    commissionRate
-  );
-
+  const estimatedOpenCommission = getCommission(position.notional, commissionRate);
+  const estimatedCloseCommission = getCommission(position.quantity * lastPrice, commissionRate);
   const unrealizedNetPnl =
     unrealizedGrossPnl - estimatedOpenCommission - estimatedCloseCommission;
 
   return {
+    symbol: position.symbol,
     side: position.side,
     regime: position.regime,
     openedAt: position.openedAt,
     entryPrice: round(position.entryPrice),
-    stopLossPrice: round(position.stopLossPrice),
-    takeProfitPrice: round(position.takeProfitPrice),
     quantity: round(position.quantity, 12),
-    positionSize: round(position.entryPrice * position.quantity, 8),
+    notional: round(position.notional, 8),
+    takeProfitPrice: round(position.takeProfitPrice),
+    stopLossPrice: round(position.stopLossPrice),
     lastPrice: round(lastPrice),
     unrealizedGrossPnl: round(unrealizedGrossPnl),
-    unrealizedNetPnl: round(unrealizedNetPnl),
-    barsHeld
+    unrealizedNetPnl: round(unrealizedNetPnl)
   };
 }
 
 function tryOpenPosition(params: {
+  symbol: string;
   visibleCandles: Candle[];
   currentBalance: number;
-  commissionRate: number;
+  positionPercent: number;
   sideFilter: SideFilter;
 }): OpenPosition | null {
-  const { visibleCandles, currentBalance, commissionRate, sideFilter } = params;
-  const signal = analyzeMarket(visibleCandles, currentBalance);
+  const { symbol, visibleCandles, currentBalance, positionPercent, sideFilter } = params;
+  const signal = analyzeMarket(visibleCandles);
 
   if (signal.side === 'none') return null;
   if (sideFilter === 'long' && signal.side !== 'long') return null;
   if (sideFilter === 'short' && signal.side !== 'short') return null;
 
   if (
-    signal.positionSize == null ||
     signal.stopLossPrice == null ||
     signal.takeProfitPrice == null ||
-    !Number.isFinite(signal.positionSize) ||
     !Number.isFinite(signal.stopLossPrice) ||
     !Number.isFinite(signal.takeProfitPrice)
   ) {
@@ -330,35 +318,27 @@ function tryOpenPosition(params: {
 
   if (entryPrice <= 0 || stopLossPrice <= 0 || takeProfitPrice <= 0) return null;
 
-  const initialR = Math.abs(entryPrice - stopLossPrice);
-  if (initialR <= 0) return null;
+  const notional = currentBalance * positionPercent;
+  if (!Number.isFinite(notional) || notional <= 0) return null;
 
-  const requestedQuantity = Math.max(0, toNumber(signal.positionSize));
-  const maxAffordableQuantity =
-    currentBalance > 0 ? currentBalance / (entryPrice * (1 + commissionRate)) : 0;
-
-  const quantity = Math.min(requestedQuantity, maxAffordableQuantity);
+  const quantity = notional / entryPrice;
   if (!Number.isFinite(quantity) || quantity <= 0) return null;
 
-  const actualNotional = quantity * entryPrice;
-
   return {
+    symbol,
     side: signal.side,
     regime: signal.regime,
     openedAt: lastCandle.time,
     entryPrice,
-    stopLossPrice,
-    initialStopLossPrice: stopLossPrice,
-    takeProfitPrice,
     quantity,
-    positionSize: actualNotional,
-    balanceBefore: currentBalance,
-    initialR
+    notional,
+    takeProfitPrice,
+    stopLossPrice,
+    balanceBefore: currentBalance
   };
 }
 
 function buildTrade(params: {
-  symbol: string;
   position: OpenPosition;
   exitPrice: number;
   closedAt: number;
@@ -368,7 +348,6 @@ function buildTrade(params: {
   barsHeld: number;
 }): BacktestTrade {
   const {
-    symbol,
     position,
     exitPrice,
     closedAt,
@@ -378,13 +357,6 @@ function buildTrade(params: {
     barsHeld
   } = params;
 
-  const commissionOpen = getCommission(
-    position.entryPrice * position.quantity,
-    commissionRate
-  );
-  const commissionClose = getCommission(exitPrice * position.quantity, commissionRate);
-  const totalCommission = commissionOpen + commissionClose;
-
   const grossPnl = getGrossPnl({
     side: position.side,
     entryPrice: position.entryPrice,
@@ -392,21 +364,24 @@ function buildTrade(params: {
     quantity: position.quantity
   });
 
+  const commissionOpen = getCommission(position.notional, commissionRate);
+  const commissionClose = getCommission(position.quantity * exitPrice, commissionRate);
+  const totalCommission = commissionOpen + commissionClose;
   const netPnl = grossPnl - totalCommission;
 
   return {
-    symbol,
+    symbol: position.symbol,
     side: position.side,
     regime: position.regime,
     openedAt: position.openedAt,
     closedAt,
     entryPrice: round(position.entryPrice),
     exitPrice: round(exitPrice),
-    stopLossPrice: round(position.stopLossPrice),
-    takeProfitPrice: round(position.takeProfitPrice),
     quantity: round(position.quantity, 12),
-    positionSize: round(position.entryPrice * position.quantity, 8),
-    closeReason,
+    notional: round(position.notional, 8),
+    takeProfitPrice: round(position.takeProfitPrice),
+    stopLossPrice: round(position.stopLossPrice),
+    realizedPnL: round(grossPnl),
     grossPnl: round(grossPnl),
     commissionOpen: round(commissionOpen),
     commissionClose: round(commissionClose),
@@ -414,12 +389,12 @@ function buildTrade(params: {
     netPnl: round(netPnl),
     balanceBefore: round(position.balanceBefore),
     balanceAfter: round(balanceBeforeClose + netPnl),
-    barsHeld
+    barsHeld,
+    closeReason
   };
 }
 
 function processExitsOnCandle(params: {
-  symbol: string;
   position: OpenPosition;
   candle: Candle;
   balance: number;
@@ -431,7 +406,7 @@ function processExitsOnCandle(params: {
   balance: number;
   stillOpen: boolean;
 } {
-  const { symbol, position, candle, commissionRate, barsHeld, conservative } = params;
+  const { position, candle, commissionRate, barsHeld, conservative } = params;
   let { balance } = params;
 
   const hitStop =
@@ -446,7 +421,6 @@ function processExitsOnCandle(params: {
 
   if (hitStop && hitTp && conservative) {
     const trade = buildTrade({
-      symbol,
       position,
       exitPrice: position.stopLossPrice,
       closedAt: candle.time,
@@ -462,7 +436,6 @@ function processExitsOnCandle(params: {
 
   if (hitStop) {
     const trade = buildTrade({
-      symbol,
       position,
       exitPrice: position.stopLossPrice,
       closedAt: candle.time,
@@ -478,7 +451,6 @@ function processExitsOnCandle(params: {
 
   if (hitTp) {
     const trade = buildTrade({
-      symbol,
       position,
       exitPrice: position.takeProfitPrice,
       closedAt: candle.time,
@@ -565,16 +537,14 @@ export function runStrategyBacktest(
 ): BacktestResult {
   const resolvedOptions: Required<BacktestOptions> = {
     startingBalance: options.startingBalance ?? 500,
-    commissionRate: options.commissionRate ?? 0.0005,
+    positionPercent: options.positionPercent ?? 0.1,
+    commissionRate: options.commissionRate ?? 0,
     warmupCandles: options.warmupCandles ?? 0,
     onePositionAtTime: options.onePositionAtTime ?? true,
     conservativeIntrabarExecution: options.conservativeIntrabarExecution ?? true,
     cooldownCandles: options.cooldownCandles ?? 0,
     progressLogEvery: options.progressLogEvery ?? 250,
     maxTradesPerDay: options.maxTradesPerDay ?? 0,
-    timeStopBars: options.timeStopBars ?? 0,
-    earlyAbortBars: options.earlyAbortBars ?? 0,
-    earlyAbortMinR: options.earlyAbortMinR ?? 0.35,
     sideFilter: options.sideFilter ?? 'both',
     tradeStartTime: options.tradeStartTime ?? 0,
     closeOpenPositionOnEnd: options.closeOpenPositionOnEnd ?? false
@@ -651,90 +621,29 @@ export function runStrategyBacktest(
             `ETA: ${formatDuration(etaSec)}`,
             `Сделок: ${trades.length}`,
             `Баланс: ${round(balance, 2)}`,
-            `Открыта: ${
-              openPosition
-                ? `${openPosition.side}@${round(openPosition.entryPrice, 4)}`
-                : 'нет'
-            }`
+            `Открыта: ${openPosition ? `${openPosition.side}@${round(openPosition.entryPrice, 4)}` : 'нет'}`
           ].join(' | ')
         );
       }
     }
 
     if (openPosition) {
-      const barsHeld = i - openPositionIndex;
-
-      const exitResult = processExitsOnCandle({
-        symbol,
+      const result = processExitsOnCandle({
         position: openPosition,
         candle: currentCandle,
         balance,
         commissionRate: resolvedOptions.commissionRate,
-        barsHeld,
+        barsHeld: i - openPositionIndex,
         conservative: resolvedOptions.conservativeIntrabarExecution
       });
 
-      balance = exitResult.balance;
+      balance = result.balance;
 
-      if (exitResult.trade) {
-        trades.push(exitResult.trade);
+      if (result.trade) {
+        trades.push(result.trade);
         equityCurve.push({ time: currentCandle.time, balance: round(balance) });
-        cooldownRemaining = resolvedOptions.cooldownCandles;
-        openPosition = null;
-        openPositionIndex = -1;
-        continue;
-      }
 
-      if (
-        openPosition &&
-        resolvedOptions.timeStopBars > 0 &&
-        barsHeld >= resolvedOptions.timeStopBars
-      ) {
-        const trade = buildTrade({
-          symbol,
-          position: openPosition,
-          exitPrice: currentCandle.close,
-          closedAt: currentCandle.time,
-          closeReason: 'time_stop',
-          balanceBeforeClose: balance,
-          commissionRate: resolvedOptions.commissionRate,
-          barsHeld
-        });
-
-        balance = trade.balanceAfter;
-        trades.push(trade);
-        equityCurve.push({ time: currentCandle.time, balance: round(balance) });
-        cooldownRemaining = resolvedOptions.cooldownCandles;
-        openPosition = null;
-        openPositionIndex = -1;
-        continue;
-      }
-
-      if (
-        openPosition &&
-        resolvedOptions.earlyAbortBars > 0 &&
-        barsHeld >= resolvedOptions.earlyAbortBars
-      ) {
-        const fav =
-          openPosition.side === 'long'
-            ? currentCandle.close - openPosition.entryPrice
-            : openPosition.entryPrice - currentCandle.close;
-
-        if (fav < resolvedOptions.earlyAbortMinR * openPosition.initialR) {
-          const trade = buildTrade({
-            symbol,
-            position: openPosition,
-            exitPrice: currentCandle.close,
-            closedAt: currentCandle.time,
-            closeReason: 'early_abort',
-            balanceBeforeClose: balance,
-            commissionRate: resolvedOptions.commissionRate,
-            barsHeld
-          });
-
-          balance = trade.balanceAfter;
-          trades.push(trade);
-          equityCurve.push({ time: currentCandle.time, balance: round(balance) });
+        if (!result.stillOpen) {
           cooldownRemaining = resolvedOptions.cooldownCandles;
           openPosition = null;
           openPositionIndex = -1;
@@ -759,9 +668,10 @@ export function runStrategyBacktest(
     }
 
     const maybeOpen = tryOpenPosition({
+      symbol,
       visibleCandles,
       currentBalance: balance,
-      commissionRate: resolvedOptions.commissionRate,
+      positionPercent: resolvedOptions.positionPercent,
       sideFilter: resolvedOptions.sideFilter
     });
 
@@ -783,7 +693,6 @@ export function runStrategyBacktest(
 
     if (resolvedOptions.closeOpenPositionOnEnd) {
       const trade = buildTrade({
-        symbol,
         position: openPosition,
         exitPrice: lastCandle.close,
         closedAt: lastCandle.time,
@@ -800,8 +709,7 @@ export function runStrategyBacktest(
       openPositionSnapshot = snapshotOpenPosition({
         position: openPosition,
         lastPrice: lastCandle.close,
-        commissionRate: resolvedOptions.commissionRate,
-        barsHeld: sortedCandles.length - 1 - openPositionIndex
+        commissionRate: resolvedOptions.commissionRate
       });
     }
   }
