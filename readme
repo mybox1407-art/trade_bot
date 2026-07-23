@@ -21,4 +21,5 @@ npx tsx src/backtest/runBacktest.ts \
 SOLUSDT
 
 tmux new -s backtest
+tmux kill-session -t backtest
 tmux attach -t backtest
