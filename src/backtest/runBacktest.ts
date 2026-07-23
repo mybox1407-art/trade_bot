@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { runStrategyBacktest, SideFilter } from './strategyBacktest';
-import { Candle } from '../services/strategy';
+import { Candle, MAX_RISK_PER_TRADE } from '../services/strategy';
 
 const STARTING_BALANCE = Number(process.env.BACKTEST_STARTING_BALANCE ?? '500');
 const POSITION_PERCENT = Number(process.env.BACKTEST_POSITION_PERCENT ?? '0.3');
@@ -391,6 +391,7 @@ function main(): void {
   );
   out.log(`Стартовый баланс: ${STARTING_BALANCE}`);
   out.log(`Position percent: ${formatNumber(POSITION_PERCENT * 100, 2)}%`);
+  out.log(`Риск на сделку: ${formatNumber(MAX_RISK_PER_TRADE * 100, 2)}%`);
   out.log(`Комиссия: ${formatNumber(COMMISSION_RATE * 100, 4)}%`);
   out.log(`Side filter: ${sideFilter}`);
   out.log(`Оценка времени: ~ ${formatDuration(estimated.minSec)} - ${formatDuration(estimated.maxSec)}`);
@@ -465,6 +466,7 @@ function main(): void {
       options: {
         startingBalance: STARTING_BALANCE,
         positionPercent: POSITION_PERCENT,
+        maxRiskPerTrade: MAX_RISK_PER_TRADE,
         commissionRate: COMMISSION_RATE,
         progressLogEvery: PROGRESS_LOG_EVERY,
         warmupCandles15m: WARMUP_CANDLES_15M,
