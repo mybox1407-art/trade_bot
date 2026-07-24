@@ -15,6 +15,10 @@ import {
 
 const router = Router();
 
+function normalizeSymbol(symbol?: string) {
+  return typeof symbol === 'string' ? symbol.trim().toUpperCase() : undefined;
+}
+
 router.get('/status', (_req, res) => {
   res.json({
     ok: true,
@@ -35,12 +39,15 @@ router.get('/balance', (_req, res) => {
 
 router.post('/open', async (req, res) => {
   try {
-    const { symbol, side, takeProfitPrice, stopLossPrice } = req.body as {
+    const rawBody = req.body as {
       symbol?: string;
       side?: 'long' | 'short';
       takeProfitPrice?: number;
       stopLossPrice?: number;
     };
+
+    const symbol = normalizeSymbol(rawBody.symbol);
+    const { side, takeProfitPrice, stopLossPrice } = rawBody;
 
     if (!symbol || !side || takeProfitPrice == null || stopLossPrice == null) {
       return res.status(400).json({
@@ -84,9 +91,9 @@ router.post('/open', async (req, res) => {
   }
 });
 
-router.get('/check-close', async (req, res) => {
+router.post('/check-close', async (req, res) => {
   try {
-    const { symbol } = req.query as { symbol?: string };
+    const symbol = normalizeSymbol((req.body as { symbol?: string }).symbol);
     const positions = symbol ? getPositions().filter(position => position.symbol === symbol) : getPositions();
 
     if (positions.length === 0) {
@@ -94,7 +101,9 @@ router.get('/check-close', async (req, res) => {
     }
 
     const symbols = [...new Set(positions.map(position => position.symbol))];
-    const prices = await Promise.all(symbols.map(async currentSymbol => [currentSymbol, await getCurrentPrice(currentSymbol)] as const));
+    const prices = await Promise.all(
+      symbols.map(async currentSymbol => [currentSymbol, await getCurrentPrice(currentSymbol)] as const)
+    );
     const priceMap = Object.fromEntries(prices);
     const closed: unknown[] = [];
 
@@ -146,11 +155,14 @@ router.get('/check-close', async (req, res) => {
 
 router.post('/close', async (req, res) => {
   try {
-    const { positionId, symbol, reason } = req.body as {
+    const rawBody = req.body as {
       positionId?: string;
       symbol?: string;
       reason?: 'take_profit' | 'stop_loss' | 'manual';
     };
+
+    const { positionId, reason } = rawBody;
+    const symbol = normalizeSymbol(rawBody.symbol);
 
     const position = positionId
       ? getPositionById(positionId)
