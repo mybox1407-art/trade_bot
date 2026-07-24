@@ -1,6 +1,10 @@
-import { MAX_RISK_PER_TRADE } from './strategy';
+import { MAX_RISK_PER_TRADE, STARTING_BALANCE, TRADE_FEE_RATE } from './strategy';
+
+export const POSITION_PERCENT = 0.30;
+export const MAX_PARALLEL_POSITIONS = 3;
 
 export interface VirtualPosition {
+  id: string;
   symbol: string;
   side: 'long' | 'short';
   entryPrice: number;
@@ -8,10 +12,12 @@ export interface VirtualPosition {
   notional: number;
   takeProfitPrice: number;
   stopLossPrice: number;
+  entryFee: number;
   openedAt: string;
 }
 
 export interface ClosedTrade {
+  id: string;
   symbol: string;
   side: 'long' | 'short';
   entryPrice: number;
@@ -19,19 +25,27 @@ export interface ClosedTrade {
   quantity: number;
   notional: number;
   realizedPnL: number;
+  entryFee: number;
+  exitFee: number;
+  totalFee: number;
+  netPnL: number;
+  openedAt: string;
   closedAt: string;
   reason: 'take_profit' | 'stop_loss' | 'manual';
 }
 
-const STARTING_BALANCE = 500;
-const POSITION_PERCENT = 0.10;
-
 let balance = STARTING_BALANCE;
-let currentPosition: VirtualPosition | null = null;
+let currentPositions: VirtualPosition[] = [];
 let lastClosedTrade: ClosedTrade | null = null;
 
 function isFinitePositive(value: number) {
   return Number.isFinite(value) && value > 0;
+}
+
+function createPositionId() {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function isValidLevels(params: {
@@ -42,11 +56,7 @@ function isValidLevels(params: {
 }) {
   const { side, entryPrice, takeProfitPrice, stopLossPrice } = params;
 
-  if (
-    !isFinitePositive(entryPrice) ||
-    !Number.isFinite(takeProfitPrice) ||
-    !Number.isFinite(stopLossPrice)
-  ) {
+  if (!isFinitePositive(entryPrice) || !Number.isFinite(takeProfitPrice) || !Number.isFinite(stopLossPrice)) {
     return false;
   }
 
@@ -61,8 +71,28 @@ export function getBalance() {
   return balance;
 }
 
-export function getPosition() {
-  return currentPosition;
+export function getPositions() {
+  return currentPositions;
+}
+
+export function getPosition(symbol?: string) {
+  if (symbol) {
+    return currentPositions.find(position => position.symbol === symbol) ?? null;
+  }
+
+  return currentPositions[0] ?? null;
+}
+
+export function getPositionById(positionId: string) {
+  return currentPositions.find(position => position.id === positionId) ?? null;
+}
+
+export function hasOpenPosition(symbol?: string) {
+  if (!symbol) {
+    return currentPositions.length > 0;
+  }
+
+  return currentPositions.some(position => position.symbol === symbol);
 }
 
 export function getLastClosedTrade() {
@@ -77,6 +107,10 @@ export function getRiskCapital() {
   return balance * MAX_RISK_PER_TRADE;
 }
 
+export function getOpenPositionsCount() {
+  return currentPositions.length;
+}
+
 export function openPosition(data: {
   symbol: string;
   side: 'long' | 'short';
@@ -84,8 +118,12 @@ export function openPosition(data: {
   takeProfitPrice: number;
   stopLossPrice: number;
 }) {
-  if (currentPosition) {
-    return { ok: false, message: 'Position already open', position: currentPosition };
+  if (currentPositions.length >= MAX_PARALLEL_POSITIONS) {
+    return { ok: false, message: `Max ${MAX_PARALLEL_POSITIONS} open positions reached`, positions: currentPositions };
+  }
+
+  if (hasOpenPosition(data.symbol)) {
+    return { ok: false, message: `Position for ${data.symbol} is already open`, positions: currentPositions };
   }
 
   if (!isValidLevels(data)) {
@@ -101,16 +139,26 @@ export function openPosition(data: {
   const maxQuantityByPercent = maxNotionalByPercent / data.entryPrice;
 
   const riskCapital = getRiskCapital();
-  const riskQuantity = riskCapital / stopDistance;
+  const worstCaseFeePerUnit = (data.entryPrice + data.stopLossPrice) * TRADE_FEE_RATE;
+  const totalRiskPerUnit = stopDistance + worstCaseFeePerUnit;
+  const riskQuantity = riskCapital / totalRiskPerUnit;
 
   const quantity = Math.min(riskQuantity, maxQuantityByPercent);
   const notional = quantity * data.entryPrice;
+  const entryFee = notional * TRADE_FEE_RATE;
 
-  if (!isFinitePositive(quantity) || !isFinitePositive(notional)) {
+  if (!isFinitePositive(quantity) || !isFinitePositive(notional) || !Number.isFinite(entryFee)) {
     return { ok: false, message: 'Calculated position size is invalid' };
   }
 
-  currentPosition = {
+  if (balance < entryFee) {
+    return { ok: false, message: 'Insufficient balance to pay entry fee' };
+  }
+
+  balance = balance - entryFee;
+
+  const position: VirtualPosition = {
+    id: createPositionId(),
     symbol: data.symbol,
     side: data.side,
     entryPrice: data.entryPrice,
@@ -118,35 +166,50 @@ export function openPosition(data: {
     notional,
     takeProfitPrice: data.takeProfitPrice,
     stopLossPrice: data.stopLossPrice,
+    entryFee,
     openedAt: new Date().toISOString()
   };
 
-  return { ok: true, balance, position: currentPosition };
+  currentPositions = [...currentPositions, position];
+
+  return { ok: true, balance, position, positions: currentPositions };
 }
 
-export function closePosition(exitPrice: number, reason: 'take_profit' | 'stop_loss' | 'manual') {
-  if (!currentPosition) {
+export function closePosition(positionId: string, exitPrice: number, reason: 'take_profit' | 'stop_loss' | 'manual') {
+  const index = currentPositions.findIndex(position => position.id === positionId);
+  if (index === -1) {
     return { ok: false, message: 'No open position' };
   }
 
-  const realizedPnL = currentPosition.side === 'long'
-    ? (exitPrice - currentPosition.entryPrice) * currentPosition.quantity
-    : (currentPosition.entryPrice - exitPrice) * currentPosition.quantity;
+  const position = currentPositions[index];
+  const realizedPnL = position.side === 'long'
+    ? (exitPrice - position.entryPrice) * position.quantity
+    : (position.entryPrice - exitPrice) * position.quantity;
+
+  const exitFee = exitPrice * position.quantity * TRADE_FEE_RATE;
+  const totalFee = position.entryFee + exitFee;
+  const netPnL = realizedPnL - exitFee;
 
   lastClosedTrade = {
-    symbol: currentPosition.symbol,
-    side: currentPosition.side,
-    entryPrice: currentPosition.entryPrice,
+    id: position.id,
+    symbol: position.symbol,
+    side: position.side,
+    entryPrice: position.entryPrice,
     exitPrice,
-    quantity: currentPosition.quantity,
-    notional: currentPosition.notional,
+    quantity: position.quantity,
+    notional: position.notional,
     realizedPnL,
+    entryFee: position.entryFee,
+    exitFee,
+    totalFee,
+    netPnL,
+    openedAt: position.openedAt,
     closedAt: new Date().toISOString(),
     reason
   };
 
-  balance = balance + realizedPnL;
-  currentPosition = null;
+  balance = balance + netPnL;
+  currentPositions = currentPositions.filter(openPosition => openPosition.id !== positionId);
 
-  return { ok: true, balance, lastClosedTrade };
+  return { ok: true, balance, lastClosedTrade, positions: currentPositions };
 }
